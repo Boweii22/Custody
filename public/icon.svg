@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <title>Custody nested vault</title>
+  <defs>
+    <linearGradient id="ink" x1="66" y1="58" x2="451" y2="463" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#32323f"/><stop offset="1" stop-color="#191b23"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="136" y1="110" x2="378" y2="399" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f7f3e8"/><stop offset="1" stop-color="#b8b0a2"/>
+    </linearGradient>
+    <linearGradient id="taint" x1="173" y1="158" x2="343" y2="351" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#bca4ff"/><stop offset="1" stop-color="#7961d7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#ink)"/>
+  <rect x="93" y="93" width="326" height="326" rx="85" stroke="url(#ring)" stroke-width="2" opacity=".22"/>
+  <rect x="119" y="119" width="274" height="274" rx="68" stroke="url(#ring)" stroke-width="14"/>
+  <rect x="164" y="164" width="184" height="184" rx="47" transform="rotate(-12 256 256)" stroke="url(#taint)" stroke-width="12"/>
+  <rect x="199" y="199" width="114" height="114" rx="31" fill="#24262f" stroke="#eee7d9" stroke-width="10"/>
+  <path d="M256 233v46m-23-23h46" stroke="#eee7d9" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="376" cy="136" r="19" fill="#24262e"/>
+  <circle cx="376" cy="136" r="10" fill="#a2d2ae"/>
+  <path d="M118 243h16m-16 26h16m244-26h16m-16 26h16" stroke="#eee7d9" stroke-width="7" stroke-linecap="round"/>
+</svg>
