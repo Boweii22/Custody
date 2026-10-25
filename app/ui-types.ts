@@ -1,4 +1,4 @@
-import type { Check, ProvenanceField } from '../lib/kernel';
+import type { Check, ProvenanceField, Customer, Order, Dispute } from '../lib/kernel';
 export interface Decision {
     id: string;
     createdAt: string;
@@ -52,8 +52,10 @@ export interface AppState {
         local?: boolean;
     };
     vendors: Vendor[];
-    customers: unknown[];
-    orders: unknown[];
+    customers: Customer[];
+    orders: Order[];
+    disputes: Dispute[];
+    paypalOperations: CheckoutOperation[];
     policies: Policy[];
     decisions: Decision[];
     arena: Decision[];
@@ -63,7 +65,7 @@ export interface AppState {
         held: number;
         blocked: number;
         attempts: number;
-        stolenCents: number;
+        stolenCents: number | null;
     };
     chain: {
         verified: boolean;
@@ -73,6 +75,24 @@ export interface AppState {
     capabilities: {
         sandboxConfigured: boolean;
         extractorConfigured: boolean;
+        sellerConfigured: boolean;
+        webhookConfigured: boolean;
         disputes: boolean;
+        arenaMoneyRail: boolean;
     };
+    readiness: {
+        ready: boolean;
+        checks: Array<{ id: string; label: string; status: 'ready' | 'missing' | 'unverified'; detail: string }>;
+    };
+}
+
+export interface CheckoutOperation {
+    id: string;
+    kind: 'create_order' | 'capture_order';
+    status: 'reserved' | 'completed' | 'failed';
+    createdAt: string;
+    orderId?: string;
+    amountCents?: number;
+    result?: { orderId?: string; status?: string; approvalUrl?: string; captureId?: string; captureStatus?: string; amountCents?: number; currency?: string };
+    error?: string;
 }

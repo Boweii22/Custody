@@ -12,7 +12,7 @@ In a separate server integration or an explicitly enabled project checkout:
 npm install --save-exact @paypal/agent-toolkit@1.11.0
 ```
 
-The toolkit has its own framework dependencies, including AI SDK 4. Keep that dependency choice out of browser code. This repository deliberately does not install it just to run the demonstration.
+The toolkit has its own framework dependencies, including AI SDK 4. Keep that dependency choice out of browser code. This repository does not currently install or run the package; live integration remains unfinished.
 
 ```ts
 import { PayPalAgentToolkit } from "@paypal/agent-toolkit/ai-sdk";

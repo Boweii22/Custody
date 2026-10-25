@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { missingExecutionConfiguration, operatingMode } from "./configuration";
 
 export type Runtime = Cloudflare.Env & {
   CUSTODY_RAIL?: string;
@@ -16,9 +17,10 @@ export function database(): D1Database {
   if (!db) throw new HttpError(503, "Persistent ledger unavailable. Configure the DB binding and apply migrations.");
   return db;
 }
-export function railMode(): "demo" | "sandbox" { return runtime().CUSTODY_RAIL === "sandbox" ? "sandbox" : "demo"; }
+export function railMode(): "unconfigured" | "sandbox" { return operatingMode(runtime()); }
 export class HttpError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  status: number;
+  constructor(status: number, message: string) { super(message); this.status = status; }
 }
 export type Identity = { id: string; name: string; email: string; local: boolean };
 export async function identity(request: Request): Promise<Identity> {
@@ -31,12 +33,11 @@ export async function identity(request: Request): Promise<Identity> {
     let name = email;
     try { name = decodeURIComponent(request.headers.get("oai-authenticated-user-full-name") ?? email); } catch { /* Display-only field. */ }
     user = { id, email, name, local };
-  } else if (local && railMode() === "demo") {
-    user = { id: "local-demo", name: "Bowei", email: "seller@custody.demo", local: true };
+  } else if (local) {
+    user = { id: "local-development", name: "Local development", email: "", local: true };
   } else throw new HttpError(401, "Sign in with ChatGPT to open this seller ledger.");
   const seller = runtime().CUSTODY_SELLER_ID;
   if (seller && user.id !== seller) throw new HttpError(403, "This identity is not the configured seller.");
-  if (railMode() === "sandbox" && (!seller || user.id !== seller)) throw new HttpError(503, "Sandbox execution requires a configured authenticated seller identity.");
   if (!local && !seller) {
     // The Site is provisioned owner-private. Bind its first authenticated owner
     // durably so later private sharing does not grant control of seller records.
@@ -47,6 +48,13 @@ export async function identity(request: Request): Promise<Identity> {
     if (!row || (JSON.parse(row.payload) as { id: string }).id !== user.id) throw new HttpError(403, "This private ledger belongs to a different seller.");
   }
   return user;
+}
+/** Local headers are not platform authentication. Real sandbox calls require a hosted seller. */
+export function requireSandboxSeller(user: Identity, extractorRequired = false): void {
+  const env = runtime();
+  const missing = missingExecutionConfiguration(env).filter(item => extractorRequired || item !== "HTTPS model endpoint, key, and model");
+  if (missing.length) throw new HttpError(503, `Setup required: ${missing.join(", ")}. No PayPal request was sent.`);
+  if (user.local || user.id !== env.CUSTODY_SELLER_ID) throw new HttpError(403, "Sandbox operations require the configured seller authenticated by the hosted Site. Local development cannot move sandbox funds.");
 }
 export function sameOrigin(request: Request): void {
   if (request.headers.get("origin") !== new URL(request.url).origin) throw new HttpError(403, "A same-origin request is required.");

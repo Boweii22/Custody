@@ -17,7 +17,7 @@ This document describes the implemented boundary, not a certification that all p
 | Explicit owner approval | Owner authority | Grant a one-time amount-cap exception for an existing trusted destination |
 | Browser and model-generated text | Untrusted | Present requests and explanations; they cannot grant themselves authority |
 
-The arena is a simulated exercise: `arena: true` always uses the demo adapter. `DEMO-*` references are simulated. Demo records establish behavior of the local pipeline; they do not establish PayPal balances or settlement. Sandbox mode is a separate server configuration and its evidence must be identified separately. The current owner-authenticated arena is not an open inbound-email service; authored benchmark cases are not public submissions. Keep the hosted Site owner-private: the demo may bind its first authenticated visitor as owner. Configure the intended `CUSTODY_SELLER_ID` before any broader access; sandbox mode requires it explicitly. A shared seller snapshot is not tenant isolation.
+The real workspace rejects arena submissions until a separately isolated actual sandbox environment is implemented. Historical `DEMO-*` records and fixture tests do not establish PayPal balances or settlement and are not loaded into the real ledger. Keep the hosted Site owner-private: setup binds its first authenticated owner until an explicit seller ID is configured. Configure `CUSTODY_SELLER_ID` before sandbox execution. A shared seller snapshot is not tenant isolation.
 
 ## Attacker capability
 
@@ -31,7 +31,7 @@ For protected destination arguments, a trusted label is necessary but insufficie
 
 The payout receiver must match the selected vendor-book record. A refund capture must match the resolved order/capture record; the payment rail returns a refund to the original payer. An invoice recipient must match the selected customer record. Unsupported actions, unresolved identities, invalid values and policy violations are rejected, held or blocked. A successful kernel decision authorizes only its resolved execution arguments. The shipped review flow can grant a one-time policy/vendor amount-cap exception; it cannot bless an inbox destination, an expired return, an over-refund or a duplicate payment. Arena decisions cannot receive seller approval.
 
-The shipped default policy caps supplier payouts at $500, refunds at $250 and client invoices at $2,500 in USD. Amounts must be positive safe integer cents. Refunds also require the remaining refundable balance and a capture within the 30-day policy window. Duplicate invoice keys are checked using the task kind, selected target and normalized invoice number. Consult the code and active policy for the authoritative configuration.
+Initial policy templates are disabled. The owner must explicitly enable and configure spending authority. Amounts must be positive safe integer USD cents. Refunds require the remaining refundable balance and a capture within the active policy window. Duplicate invoice keys use the task kind, selected target and normalized invoice number. Consult the active policy for the authoritative configuration.
 
 An attacker-supplied receiver can be discarded and a trusted receiver used instead. Therefore an `allow` verdict is not itself an attack success. The executed arguments and the adapter's resulting state determine the outcome. Conversely, a `hold` is a request for owner attention, not proof that the input was malicious.
 

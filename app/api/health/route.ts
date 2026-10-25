@@ -1,13 +1,10 @@
 import { database, endpoint, railMode } from "@/lib/server/runtime";
-import { oauth, sandboxConfigured } from "@/lib/server/paypal";
-import { extractorConfigured } from "@/lib/server/extraction";
+import { appState } from "@/lib/server/service";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
-  return endpoint(request, async () => {
+  return endpoint(request, async user => {
     await database().prepare("SELECT 1 AS healthy").first();
-    const mode = railMode();
-    let paypal = mode === "demo" ? "not called in demo mode" : "not configured";
-    if (mode === "sandbox" && sandboxConfigured()) { await oauth(); paypal = "sandbox OAuth verified"; }
-    return { status: "ok", database: "connected", mode, paypal, extractor: extractorConfigured() ? "configured; checked on extraction" : "deterministic rule demo", arena: "isolated simulation; payment rail disabled" };
+    const state = await appState(user);
+    return { status: "ok", database: "connected", mode: railMode(), readiness: state.readiness, capabilities: state.capabilities, paypal: "Use the explicit connection verification action to perform real OAuth.", extractor: state.extractor, arena: "disabled; no simulated execution" };
   });
 }

@@ -1,21 +1,20 @@
-import { extractRequest, type ExtractedRequest, type MessageInput } from "../extract";
+import type { ExtractedRequest, MessageInput } from "../extract";
 import { labeled, type PaymentKind } from "../kernel";
-import { runtime } from "./runtime";
-import { rateLimit } from "./store";
+import { hasExtractorCredentials } from "./configuration";
+import { HttpError, runtime } from "./runtime";
+import { rateLimit, sha256 } from "./store";
 
-export type Extraction = ExtractedRequest & { method: "rule-demo" | "model"; fallbackReason?: string };
+export type Extraction = ExtractedRequest & { method: "model" };
 const kinds: PaymentKind[] = ["pay_invoice", "refund", "send_invoice", "dispute"];
 const names = ["vendor", "customer", "invoiceNumber", "orderId", "disputeId", "currency", "requestedReceiver"] as const;
-export function extractorConfigured() { const env = runtime(); return !!(env.EXTRACTOR_URL && env.EXTRACTOR_KEY && env.EXTRACTOR_MODEL); }
-export async function extractQuarantined(input: MessageInput, forceDemo = false): Promise<Extraction> {
-  const base = extractRequest(input);
-  if (forceDemo || !extractorConfigured()) return { ...base, method: "rule-demo" };
+export function extractorConfigured() { return hasExtractorCredentials(runtime()); }
+export async function extractQuarantined(input: MessageInput): Promise<Extraction> {
+  if (!extractorConfigured()) throw new HttpError(503, "A real model endpoint, key, and model are required. No extraction fallback is enabled.");
   const env = runtime();
+  // Global daily breaker bounds external extraction, independently of users.
+  await rateLimit("model-daily-budget", 300, 86400);
   try {
-    // Global daily breaker bounds external extraction, independently of users.
-    await rateLimit("model-daily-budget", 300, 86400);
     const endpoint = new URL(env.EXTRACTOR_URL!);
-    if (endpoint.protocol !== "https:") throw new Error("The model endpoint must use HTTPS.");
     const properties = Object.fromEntries(names.map(name => [name, name === "requestedReceiver" ? { type: ["string", "null"] } : { type: "string" }]));
     const response = await fetch(endpoint, {
       method: "POST", headers: { Authorization: `Bearer ${env.EXTRACTOR_KEY}`, "Content-Type": "application/json" },
@@ -32,17 +31,20 @@ export async function extractQuarantined(input: MessageInput, forceDemo = false)
     if (wire.length > 20000) throw new Error("Extractor response too large.");
     const envelope = JSON.parse(wire);
     const content = envelope?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || content.length > 12000) throw new Error("Extractor did not return constrained JSON.");
+    if (typeof content !== "string" || content.length > 12000 || envelope?.choices?.[0]?.message?.refusal) throw new Error("Extractor did not return constrained JSON.");
     const parsed = JSON.parse(content) as Record<string, unknown>;
-    if (!kinds.includes(parsed.kind as PaymentKind) || !names.every(name => name === "requestedReceiver" && parsed[name] === null || typeof parsed[name] === "string" && (parsed[name] as string).length <= 254)
+    if (!parsed || Array.isArray(parsed) || Object.keys(parsed).length !== names.length + 2 || !kinds.includes(parsed.kind as PaymentKind)
+      || !names.every(name => name === "requestedReceiver" && parsed[name] === null || typeof parsed[name] === "string" && (parsed[name] as string).length <= 254)
       || parsed.amountCents !== null && (!Number.isSafeInteger(parsed.amountCents) || Math.abs(parsed.amountCents as number) > 100000000)) throw new Error("Extractor schema validation failed.");
-    const source = `Quarantined model claims · ${base.sourceId}`;
-    return { ...base, kind: parsed.kind as PaymentKind, requestType: labeled(parsed.kind as PaymentKind, "tainted:model", source),
+    const rawText = [input.subject, input.body].filter(Boolean).join("\n\n");
+    const sourceId = input.id ?? `message-${(await sha256(rawText)).slice(0, 24)}`;
+    const source = `Quarantined model claims · ${sourceId}`;
+    return { sourceId, rawText, hostileSpans: [], kind: parsed.kind as PaymentKind, requestType: labeled(parsed.kind as PaymentKind, "tainted:model", source),
       vendor: labeled(parsed.vendor as string, "tainted:model", source), customer: labeled(parsed.customer as string, "tainted:model", source),
       invoiceNumber: labeled(parsed.invoiceNumber as string, "tainted:model", source), orderId: labeled(parsed.orderId as string, "tainted:model", source),
       disputeId: labeled(parsed.disputeId as string, "tainted:model", source), amountCents: labeled(parsed.amountCents as number | null, "tainted:model", source),
       currency: labeled(parsed.currency as string, "tainted:model", source), requestedReceiver: labeled(parsed.requestedReceiver as string | null, "tainted:model", source), extraction: "model", method: "model" };
   } catch {
-    return { ...base, method: "rule-demo", fallbackReason: "Model unavailable or invalid; deterministic rule extractor used. No tool access was granted." };
+    throw new HttpError(502, "The real model request failed or returned invalid constrained JSON. No payment decision or substitute extraction was created.");
   }
 }

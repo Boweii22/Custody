@@ -1,5 +1,7 @@
 # Custody — 2 minutes 40 seconds
 
+> Historical presentation draft for the former fictional prototype. The current operating app has no demo rail, seeded messages or simulated arena. Do not use this script as evidence that current real-provider flows have run. Follow `REAL-SANDBOX-SETUP.md` and capture actual verified provider results before preparing a new recording.
+
 Target runtime: **2:40**, including the closing card. Capture at 1920 × 1080. Use captions and leave enough time for the viewer to read each verdict. Record against the actual shipped interface; move a shot rather than implying a control exists. The evidence labels remain visible throughout.
 
 Before recording, choose **one** mode: local demo or independently verified PayPal sandbox. Local mode uses the wording below. Replace the marked lines with sandbox wording only after collecting real provider-side receipts and confirming account state. Do not relabel demo references as PayPal transactions. Use stored receipt replay only with a persistent **REPLAY** label.

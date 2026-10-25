@@ -1,18 +1,18 @@
 import { decide, type Customer, type Decision, type Dispute, type KernelContext, type Order, type PaymentKind, type Policy, type Vendor } from "../kernel";
-import { extractRequest, policyFor, resolveRequest } from "../extract";
-import * as fixtures from "../fixtures";
+import { policyFor, resolveRequest } from "../extract";
+import { hasSandboxCredentials, initialPolicies, type ConnectionCheck } from "./configuration";
 import { extractQuarantined, extractorConfigured, type Extraction } from "./extraction";
-import { captureSandboxOrder, createSandboxOrder, executeSandbox, getSandboxDispute, getSandboxInvoice, getSandboxOrder, getSandboxPayout, getSandboxRefund, sandboxConfigured, type RailResult } from "./paypal";
-import { HttpError, railMode, type Identity } from "./runtime";
+import { captureSandboxOrder, createSandboxOrder, executeSandbox, getSandboxCheckoutOrder, getSandboxDispute, getSandboxInvoice, getSandboxOrder, getSandboxPayout, getSandboxRefund, oauth, sandboxConfigured, type RailResult } from "./paypal";
+import { HttpError, railMode, requireSandboxSeller, runtime, type Identity } from "./runtime";
 import { appendReceipt, initialize, mutateState, readState, sha256, verifyChain, type ChainReceipt, type LedgerState, type PayPalOperation } from "./store";
-import { invoiceExecutionStatus, mergeTrustedOrder, synchronousExecutionStatus } from "./reconciliation";
+import { exactPayPalCents, invoiceExecutionStatus, mergeTrustedOrder, reconciliationMismatch, synchronousExecutionStatus } from "./reconciliation";
 
 export type StoredDecision = Omit<Decision, "status"> & {
   id: string; createdAt: string; subject: string; text: string; kind: PaymentKind;
-  arena: boolean; mode: "demo" | "sandbox"; verdict: Decision["status"];
+  arena: boolean; mode: "sandbox"; verdict: Decision["status"];
   status: "paid" | "refunded" | "invoiced" | "evidence" | "held" | "blocked" | "rejected" | "pending" | "failed";
   amountCents: number; currency: string; counterparty: string; extraction: Extraction;
-  receipt: ChainReceipt; rail?: RailResult; executionKey?: string;
+  receipt: ChainReceipt; rail?: RailResult; executionKey?: string; refundBalanceConfirmed?: boolean;
   approval?: { by: string; at: string; action: "approve" | "reject"; diff: unknown[] };
   railError?: string; unread?: boolean; from?: string; senderName?: string; attack?: boolean; attachment?: string;
 };
@@ -21,49 +21,57 @@ function context(state: LedgerState, arena = false, now = new Date().toISOString
   const orders = structuredClone(state.orders as Order[]);
   // Outstanding/uncertain sandbox refunds consume the remaining allowance even
   // before PayPal replies, preventing two concurrent requests over-reserving it.
-  for (const reservation of decisions(state).filter(row => row.id !== excludeId && !row.arena && row.mode === "sandbox" && row.kind === "refund" && ["pending", "failed"].includes(row.status))) {
+  for (const reservation of decisions(state).filter(row => row.id !== excludeId && !row.arena && row.mode === "sandbox" && row.kind === "refund" && (["pending", "failed"].includes(row.status) || row.status === "refunded" && !row.refundBalanceConfirmed))) {
     const order = orders.find(value => value.id === reservation.plan.targetId);
     if (order) order.refundedCents += reservation.amountCents;
   }
   return { now, vendors: state.vendors as Vendor[], customers: state.customers as Customer[], orders, disputes: state.disputes as Dispute[],
     settledInvoiceKeys: decisions(state).filter(row => row.id !== excludeId && row.arena === arena && row.executionKey && !["held", "blocked", "rejected"].includes(row.status)).map(row => row.executionKey!) };
 }
+function confirmRefundSnapshot(state: LedgerState, order: Order) {
+  const refundIds = (order as Order & { refundIds?: string[] }).refundIds ?? [];
+  for (const row of decisions(state).filter(value => value.kind === "refund" && value.plan.targetId === order.id && value.status === "refunded")) {
+    row.refundBalanceConfirmed = !!row.rail?.reference && refundIds.includes(row.rail.reference) || order.refundedCents === order.capturedCents;
+  }
+}
 function policy(state: LedgerState, kind: PaymentKind): Policy { return policyFor(kind, state.policies as Policy[]); }
-function completed(kind: PaymentKind): StoredDecision["status"] { return ({ pay_invoice: "paid", refund: "refunded", send_invoice: "invoiced", dispute: "evidence" } as const)[kind]; }
 function displayCounterparty(extraction: Extraction, ctx: KernelContext, targetId: string) {
   return ctx.vendors.find(v => v.id === targetId)?.name || ctx.customers.find(c => c.id === targetId)?.name || ctx.orders.find(o => o.id === targetId)?.customerName || (extraction.kind === "dispute" ? "PayPal dispute records" : extraction.vendor.value || extraction.customer.value || "Unknown counterparty");
 }
-async function makeDecision(state: LedgerState, extraction: Extraction, input: { id: string; subject: string; text: string; arena: boolean; mode: "demo" | "sandbox"; createdAt: string }): Promise<StoredDecision> {
+async function makeDecision(state: LedgerState, extraction: Extraction, input: { id: string; subject: string; text: string; arena: boolean; mode: "sandbox"; createdAt: string }): Promise<StoredDecision> {
   const ctx = context(state, input.arena, input.createdAt);
   const result = decide(resolveRequest(extraction, ctx), policy(state, extraction.kind), ctx);
-  const status = result.status === "allow" ? input.mode === "demo" ? completed(extraction.kind) : "pending" : result.status === "hold" ? "held" : "blocked";
-  const rail: RailResult | undefined = result.status === "allow" && input.mode === "demo" ? { mode: "demo", reference: `DEMO-${extraction.kind.toUpperCase().replace("_", "-")}-${input.id.slice(-8).toUpperCase()}`, status: "simulated" } : undefined;
+  const status = result.status === "allow" ? "pending" : result.status === "hold" ? "held" : "blocked";
+  const rail: RailResult | undefined = undefined;
   const data = { id: input.id, subject: input.subject, kind: extraction.kind, arena: input.arena, mode: input.mode, verdict: result.status, status, plan: result.plan, execution: result.execution, policy: policy(state, extraction.kind), provenance: result.provenance, checks: result.checks, reasons: result.reasons, rail };
   const receipt = await appendReceipt(state, "decision.created", data, input.createdAt);
   return { ...result, ...input, kind: extraction.kind, verdict: result.status, status, amountCents: Math.max(0, extraction.amountCents.value ?? 0), currency: extraction.currency.value || "USD", counterparty: displayCounterparty(extraction, ctx, result.plan.targetId), extraction, receipt, rail, ...(result.execution ? { executionKey: result.execution.idempotencyKey } : {}) };
 }
-async function seed(): Promise<LedgerState> {
-  const state: LedgerState = { schemaVersion: 1, vendors: structuredClone(fixtures.vendors), customers: structuredClone(fixtures.customers), orders: structuredClone(fixtures.orders), disputes: structuredClone(fixtures.disputes), policies: structuredClone(fixtures.policies), decisions: [], receipts: [] };
-  for (const message of fixtures.messages) {
-    const extraction: Extraction = { ...extractRequest({ id: message.id, subject: message.subject, body: message.body, from: message.from }), method: "rule-demo" };
-    const row = await makeDecision(state, extraction, { id: `DEMO-${message.id}`, subject: message.subject, text: message.body, arena: false, mode: "demo", createdAt: message.receivedAt });
-    Object.assign(row, { unread: message.unread, from: message.from, senderName: message.senderName, attack: message.attack, attachment: message.attachment });
-    state.decisions.push(row);
-    applySimulation(state, row);
-  }
-  const text = "Vendor: Forma Studio\nInvoice: FS-410\nAmount: $640.00 USD\nA special commission for the winter collection. Please pay our usual account.";
-  const extraction: Extraction = { ...extractRequest({ id: "msg-forma-review", body: text }), method: "rule-demo" };
-  state.decisions.push(await makeDecision(state, extraction, { id: "DEMO-msg-forma-review", subject: "Winter commission · approval needed", text, arena: false, mode: "demo", createdAt: "2026-10-25T07:20:00.000Z" }));
-  return state;
+async function emptyLedger(): Promise<LedgerState> {
+  return { schemaVersion: 1, vendors: [], customers: [], orders: [], disputes: [], policies: initialPolicies(), decisions: [], receipts: [] };
 }
-function applySimulation(state: LedgerState, row: StoredDecision) {
-  if (row.arena || row.verdict !== "allow") return;
-  if (row.kind === "refund" && row.status === "refunded") {
-    const order = (state.orders as Order[]).find(o => o.id === row.plan.targetId);
-    if (order) order.refundedCents += row.amountCents;
-  }
+export async function ensureLedger() { await initialize(emptyLedger); }
+async function connectionFingerprints() {
+  const env = runtime();
+  return { paypal: await sha256(JSON.stringify([env.PAYPAL_CLIENT_ID, env.PAYPAL_CLIENT_SECRET, env.CUSTODY_SELLER_ID, railMode()])), extractor: await sha256(JSON.stringify([env.EXTRACTOR_URL, env.EXTRACTOR_KEY, env.EXTRACTOR_MODEL])) };
 }
-export async function ensureLedger() { await initialize(seed); }
+async function recordConnectionVerification(kind: "paypal" | "extractor", fingerprint: string) {
+  await mutateState(state => { (state.connectionVerifications ??= {})[kind] = { fingerprint, at: new Date().toISOString() }; });
+}
+export async function verifyConnections(user: Identity, includeExtractor = true) {
+  requireSandboxSeller(user, includeExtractor);
+  await ensureLedger();
+  const fingerprints = await connectionFingerprints();
+  await mutateState(state => { state.connectionVerifications = {}; });
+  await oauth(true);
+  await recordConnectionVerification("paypal", fingerprints.paypal);
+  if (includeExtractor) {
+    // A connection probe, never a business record, decision, or payment plan.
+    await extractQuarantined({ id: "connection-check", subject: "Connection verification", body: "Connection check only. No vendor, customer, payment request, amount, invoice, order or dispute is supplied. Return empty missing values." });
+    await recordConnectionVerification("extractor", fingerprints.extractor);
+  }
+  return { state: await appState(user) };
+}
 export async function appState(user: Identity) {
   await ensureLedger();
   const { state } = await readState();
@@ -71,28 +79,30 @@ export async function appState(user: Identity) {
   const sellerRows = rows.filter(row => !row.arena);
   const arena = rows.filter(row => row.arena);
   const protectedRows = rows.filter(row => row.verdict !== "allow" || row.extraction.requestedReceiver.value && row.extraction.requestedReceiver.value !== row.execution?.args.receiver && row.extraction.requestedReceiver.value !== row.execution?.args.recipient);
-  const destinationLabels = { receiver: "trusted:vendor_book", captureId: "trusted:paypal", recipient: "trusted:customer_book", disputeId: "trusted:paypal" } as const;
-  type Destination = keyof typeof destinationLabels;
-  const requiredDestinations: Record<PaymentKind, readonly Destination[]> = { pay_invoice: ["receiver"], refund: ["captureId"], send_invoice: ["recipient"], dispute: ["disputeId", "captureId"] };
-  // This measures simulated execution/snapshot consistency, never a PayPal
-  // balance. Historical provenance keeps later vendor edits out of this metric.
-  const stolenCents = arena.reduce((sum, row) => {
-    if (!row.execution) return sum;
-    const args = row.execution.args;
-    const redirected = (Object.keys(destinationLabels) as Destination[]).some(field => {
-      if (!requiredDestinations[row.kind].includes(field) && !Object.hasOwn(args, field)) return false;
-      const authority = row.provenance.find(value => value.field === field && value.authoritative && value.label === destinationLabels[field] && typeof value.value === "string" && value.value.length > 0);
-      return !authority || args[field] !== authority.value;
-    });
-    return sum + (redirected && Number.isSafeInteger(row.amountCents) && row.amountCents > 0 ? row.amountCents : 0);
-  }, 0);
-  return { mode: railMode(), extractor: extractorConfigured() ? "model" : "rule-demo", identity: user,
+  const env = runtime();
+  const fingerprints = await connectionFingerprints();
+  const paypalVerified = sandboxConfigured() && state.connectionVerifications?.paypal?.fingerprint === fingerprints.paypal;
+  const modelVerified = extractorConfigured() && state.connectionVerifications?.extractor?.fingerprint === fingerprints.extractor;
+  const sellerConfigured = !!env.CUSTODY_SELLER_ID && user.id === env.CUSTODY_SELLER_ID && !user.local;
+  const checks: ConnectionCheck[] = [
+    { id: "rail", label: "PayPal sandbox mode", status: railMode() === "sandbox" ? "ready" : "missing", detail: railMode() === "sandbox" ? "The server permits only the fixed PayPal sandbox origin." : "Set CUSTODY_RAIL=sandbox. No payment rail is active." },
+    { id: "seller", label: "Authenticated seller", status: sellerConfigured ? "ready" : "missing", detail: sellerConfigured ? "The hosted authenticated identity matches CUSTODY_SELLER_ID." : "Configure this hosted seller's authenticated identity. Local development cannot execute sandbox operations." },
+    { id: "paypal", label: "PayPal sandbox OAuth", status: paypalVerified ? "ready" : hasSandboxCredentials(env) ? "unverified" : "missing", detail: paypalVerified ? `OAuth verified at ${state.connectionVerifications!.paypal!.at}. This does not verify product entitlements or settlement.` : hasSandboxCredentials(env) ? "Credentials are present; verify the actual sandbox OAuth connection." : "Add the sandbox app client ID and secret as server secrets." },
+    { id: "extractor", label: "Model extraction", status: modelVerified ? "ready" : extractorConfigured() ? "unverified" : "missing", detail: modelVerified ? `A real constrained model response was validated at ${state.connectionVerifications!.extractor!.at}.` : extractorConfigured() ? "Endpoint settings are present; verify an actual constrained model response." : "Configure an HTTPS model endpoint, key, and model. No parser fallback is available." },
+    { id: "policies", label: "Explicit payment policies", status: (state.policies as Policy[]).some(value => value.enabled) ? "ready" : "missing", detail: "Policy templates start disabled. Enable only the playbooks and limits you authorize; disabled playbooks hold requests." },
+    { id: "webhook", label: "PayPal webhook delivery", status: "unverified", detail: env.PAYPAL_WEBHOOK_ID ? "A webhook ID is configured, but delivery through private hosting is unverified. Use authenticated reconciliation to fetch current PayPal status." : "No webhook is configured. Authenticated reconciliation can fetch current PayPal status without public callbacks." },
+    { id: "arena", label: "Isolated attack arena", status: "missing", detail: "Disabled until a separate genuine sandbox account and bounded test flow are connected. No simulated results are displayed." },
+  ];
+  return { mode: railMode(), extractor: extractorConfigured() ? "model" : "unconfigured", identity: user,
     vendors: state.vendors, customers: state.customers, orders: state.orders, disputes: state.disputes, policies: state.policies,
-    decisions: sellerRows, arena, paypalOperations: state.paypalOperations ?? [], stats: { processed: sellerRows.length, protectedCents: protectedRows.reduce((sum, row) => sum + row.amountCents, 0), held: sellerRows.filter(row => row.status === "held").length, blocked: sellerRows.filter(row => row.status === "blocked").length, attempts: arena.length, stolenCents, arenaSimulated: true },
-    chain: await verifyChain(state), capabilities: { sandboxConfigured: sandboxConfigured(), extractorConfigured: extractorConfigured(), disputes: true, arenaMoneyRail: false },
+    decisions: sellerRows, arena, paypalOperations: state.paypalOperations ?? [], stats: { processed: sellerRows.length, protectedCents: protectedRows.reduce((sum, row) => sum + row.amountCents, 0), held: sellerRows.filter(row => row.status === "held").length, blocked: sellerRows.filter(row => row.status === "blocked").length, attempts: 0, stolenCents: null, arenaSimulated: false },
+    chain: await verifyChain(state), capabilities: { sandboxConfigured: sandboxConfigured(), extractorConfigured: extractorConfigured(), sellerConfigured, webhookConfigured: !!env.PAYPAL_WEBHOOK_ID, disputes: true, arenaMoneyRail: false },
+    readiness: { ready: railMode() === "sandbox" && sellerConfigured && paypalVerified && modelVerified, checks },
   };
 }
 export async function processMessage(body: Record<string, unknown>, user: Identity) {
+  if (body.arena === true) throw new HttpError(409, "The attack arena is unavailable until a separate real sandbox account is connected. No simulation will run.");
+  requireSandboxSeller(user, true);
   await ensureLedger();
   if (typeof body.text !== "string" || body.text.trim().length < 3 || body.text.length > 6000) throw new HttpError(400, "Message text must contain 3–6,000 characters.");
   if (body.subject !== undefined && (typeof body.subject !== "string" || body.subject.length > 180)) throw new HttpError(400, "Subject must be at most 180 characters.");
@@ -108,7 +118,8 @@ export async function processMessage(body: Record<string, unknown>, user: Identi
     extraction.kind = body.kind as PaymentKind;
     extraction.requestType.value = extraction.kind;
   }
-  const mode = arena ? "demo" : railMode();
+  const mode = "sandbox" as const;
+  await recordConnectionVerification("extractor", (await connectionFingerprints()).extractor);
   if (mode === "sandbox" && extraction.kind === "dispute" && extraction.disputeId.value && !extraction.disputeId.value.startsWith("DEMO-")) await importDispute(extraction.disputeId.value, user);
   if (mode === "sandbox" && extraction.kind === "refund" && extraction.orderId.value && !extraction.orderId.value.startsWith("DEMO-")) {
     const current = await getSandboxOrder(extraction.orderId.value);
@@ -116,13 +127,13 @@ export async function processMessage(body: Record<string, unknown>, user: Identi
       const previous = (state.orders as Order[]).find(value => value.id === current.id);
       const merged = mergeTrustedOrder(previous, current);
       state.orders = [...state.orders.filter(value => (value as Order).id !== current.id), merged];
+      confirmRefundSnapshot(state, current);
       await appendReceipt(state, "paypal.order.refreshed", current);
     });
   }
   const row = await mutateState(async state => {
     const decision = await makeDecision(state, extraction, { id, subject, text, arena, mode, createdAt: new Date().toISOString() });
     decisions(state).push(decision);
-    applySimulation(state, decision);
     return decision;
   });
   if (row.status === "pending") await finishExecution(row);
@@ -137,26 +148,34 @@ async function finishExecution(row: StoredDecision) {
   let railError: string | undefined;
   try { rail = await executeSandbox(row.execution); }
   catch (error) { railError = error instanceof HttpError ? error.message : "The rail response is uncertain. Reconcile manually; this action remains reserved."; }
+  const refreshedOrder = row.kind === "refund" && rail ? await getSandboxOrder(row.plan.targetId).catch(() => undefined) : undefined;
   await mutateState(async state => {
     const stored = decisions(state).find(value => value.id === row.id);
     if (!stored || stored.status !== "pending") return;
     stored.rail = rail;
     stored.railError = railError;
     stored.status = railError ? "failed" : synchronousExecutionStatus(row.kind, rail?.status ?? "");
-    if (stored.kind === "refund" && stored.status === "refunded") {
-      const order = (state.orders as Order[]).find(value => value.id === stored.plan.targetId);
-      if (order) order.refundedCents += stored.amountCents;
+    if (refreshedOrder) {
+      confirmRefundSnapshot(state, refreshedOrder);
+      const before = (state.orders as Order[]).find(value => value.id === refreshedOrder.id);
+      state.orders = [...state.orders.filter(value => (value as Order).id !== refreshedOrder.id), mergeTrustedOrder(before, refreshedOrder)];
     }
     await appendReceipt(state, "execution.result", { decisionId: row.id, status: stored.status, rail, railError });
   });
 }
 export async function reviewDecision(id: string, action: unknown, user: Identity) {
+  requireSandboxSeller(user);
   await ensureLedger();
+  if (action === "approve") {
+    const previous = decisions((await readState()).state).find(value => value.id === id);
+    if (previous?.kind === "refund") await importOrder(previous.plan.targetId, user);
+    if (previous?.kind === "dispute") await importDispute(previous.plan.targetId, user);
+  }
   if (action !== "approve" && action !== "reject") throw new HttpError(400, "Choose approve or reject.");
   const row = await mutateState(async state => {
     const stored = decisions(state).find(value => value.id === id);
     if (!stored) throw new HttpError(404, "Decision not found.");
-    if (stored.arena) throw new HttpError(409, "Arena simulations cannot receive seller approval.");
+    if (stored.arena) throw new HttpError(409, "Arena entries cannot receive seller approval.");
     if (!["held", "blocked"].includes(stored.status)) throw new HttpError(409, "This decision has already been reviewed or reserved.");
     const at = new Date().toISOString();
     if (action === "reject") {
@@ -188,10 +207,8 @@ export async function reviewDecision(id: string, action: unknown, user: Identity
     }
     const checked = decide(plan, currentPolicy, ctx);
     if (checked.status !== "allow" || !checked.execution) throw new HttpError(409, "This action still fails the deterministic kernel.");
-    Object.assign(stored, checked, { verdict: "allow", status: stored.mode === "demo" ? completed(stored.kind) : "pending", executionKey: checked.execution.idempotencyKey, approval: { by: user.id, at, action, diff } });
-    if (stored.mode === "demo") stored.rail = { mode: "demo", reference: `DEMO-APPROVED-${id.slice(-8).toUpperCase()}`, status: "simulated" };
+    Object.assign(stored, checked, { verdict: "allow", status: "pending", executionKey: checked.execution.idempotencyKey, approval: { by: user.id, at, action, diff } });
     await appendReceipt(state, "decision.approved", { decisionId: id, ...stored.approval, plan, execution: checked.execution, provenance: checked.provenance });
-    applySimulation(state, stored);
     return stored;
   });
   if (row.status === "pending") await finishExecution(row);
@@ -219,7 +236,7 @@ export async function updateSettings(body: Record<string, unknown>, user: Identi
       const id = typeof value.id === "string" && /^vendor-[a-z0-9-]{1,60}$/.test(value.id) ? value.id : `vendor-${crypto.randomUUID()}`;
       const before = (state.vendors as Vendor[]).find(vendor => vendor.id === id);
       const vendor: Vendor = { id, name: value.name.trim(), aliases: Array.isArray(value.aliases) ? value.aliases.filter(name => typeof name === "string" && name.length <= 80).slice(0, 8) : [], email: value.email.trim().toLowerCase(), limitCents: value.limitCents!, verified: true, category: typeof value.category === "string" ? value.category.slice(0, 60) : "Merchant verified" };
-      if (state.vendors.length >= 100 && !before) throw new HttpError(409, "This demo supports up to 100 verified vendors.");
+      if (state.vendors.length >= 100 && !before) throw new HttpError(409, "This workspace supports up to 100 verified vendors.");
       state.vendors = [...state.vendors.filter(value2 => (value2 as Vendor).id !== id), vendor];
       await appendReceipt(state, "vendor.verified", { by: user.id, before: before ?? null, after: vendor, authority: "explicit seller setting" });
     } else if (body.type === "customer") {
@@ -228,7 +245,7 @@ export async function updateSettings(body: Record<string, unknown>, user: Identi
       const id = typeof value.id === "string" && /^customer-[a-z0-9-]{1,60}$/.test(value.id) ? value.id : `customer-${crypto.randomUUID()}`;
       const before = (state.customers as Customer[]).find(customer => customer.id === id);
       const customer: Customer = { id, name: value.name.trim(), email: value.email.trim().toLowerCase(), verified: true };
-      if (state.customers.length >= 100 && !before) throw new HttpError(409, "This demo supports up to 100 verified customers.");
+      if (state.customers.length >= 100 && !before) throw new HttpError(409, "This workspace supports up to 100 verified customers.");
       state.customers = [...state.customers.filter(value2 => (value2 as Customer).id !== id), customer];
       await appendReceipt(state, "customer.verified", { by: user.id, before: before ?? null, after: customer, authority: "explicit seller setting" });
     } else if (body.type === "order_evidence") {
@@ -244,6 +261,7 @@ export async function updateSettings(body: Record<string, unknown>, user: Identi
   return { state: await appState(user) };
 }
 export async function importOrder(id: unknown, user: Identity) {
+  requireSandboxSeller(user);
   if (railMode() !== "sandbox") throw new HttpError(409, "Trusted record import is available only in server-configured sandbox mode.");
   if (typeof id !== "string") throw new HttpError(400, "A PayPal sandbox order ID is required.");
   const order = await getSandboxOrder(id);
@@ -251,6 +269,7 @@ export async function importOrder(id: unknown, user: Identity) {
   await mutateState(async state => {
     const before = (state.orders as Order[]).find(value => value.id === order.id);
     const merged = mergeTrustedOrder(before, order);
+    confirmRefundSnapshot(state, order);
     state.orders = [...state.orders.filter(value => (value as Order).id !== order.id), merged];
     await appendReceipt(state, "paypal.order.imported", { by: user.id, order: merged });
   });
@@ -258,6 +277,7 @@ export async function importOrder(id: unknown, user: Identity) {
 }
 
 export async function importDispute(id: unknown, user: Identity) {
+  requireSandboxSeller(user);
   if (railMode() !== "sandbox") throw new HttpError(409, "Dispute import requires server-configured sandbox mode.");
   if (typeof id !== "string") throw new HttpError(400, "A sandbox dispute ID is required.");
   const current = await getSandboxDispute(id);
@@ -277,6 +297,7 @@ export async function importDispute(id: unknown, user: Identity) {
 }
 
 export async function checkoutOperation(body: Record<string, unknown>, user: Identity, origin: string) {
+  requireSandboxSeller(user);
   if (railMode() !== "sandbox" || !sandboxConfigured()) throw new HttpError(409, "Checkout requires server-configured sandbox credentials and seller identity.");
   if (body.action !== "create" && body.action !== "capture") throw new HttpError(400, "Choose create or capture.");
   if (typeof body.requestId !== "string" || !/^[A-Za-z0-9_-]{8,80}$/.test(body.requestId)) throw new HttpError(400, "Provide a stable requestId of 8–80 letters, digits, underscores or hyphens.");
@@ -284,6 +305,18 @@ export async function checkoutOperation(body: Record<string, unknown>, user: Ide
   if (create && (!Number.isSafeInteger(body.amountCents) || (body.amountCents as number) < 1 || (body.amountCents as number) > 1000000)) throw new HttpError(400, "Checkout amount must be 1–1,000,000 USD cents.");
   if (!create && (typeof body.orderId !== "string" || !/^[A-Za-z0-9-]{1,100}$/.test(body.orderId) || body.orderId.startsWith("DEMO-"))) throw new HttpError(400, "Provide the actual sandbox order ID.");
   await ensureLedger();
+  if (!create) {
+    const stored = (await readState()).state;
+    const original = stored.paypalOperations?.find(value => value.kind === "create_order" && value.status === "completed" && value.orderId === body.orderId);
+    if (!original) throw new HttpError(409, "Capture only an order created through this seller's checkout flow.");
+    if (!stored.paypalOperations?.some(value => value.kind === "capture_order" && value.orderId === body.orderId)) {
+      const upstream = await getSandboxCheckoutOrder(body.orderId as string);
+      if (upstream.id !== body.orderId || upstream.status !== "APPROVED") throw new HttpError(409, "The buyer must approve this exact sandbox order before capture. No capture was reserved or sent.");
+      const units = Array.isArray(upstream.purchase_units) ? upstream.purchase_units as Record<string, unknown>[] : [];
+      const amount = units[0]?.amount as Record<string, unknown> | undefined;
+      if (units.length !== 1 || exactPayPalCents(amount?.value) !== original.amountCents || amount?.currency_code !== "USD") throw new HttpError(409, "PayPal order amount or currency differs from the checkout reservation. No capture was sent.");
+    }
+  }
   const key = JSON.stringify(create ? ["create_order", user.id, body.requestId] : ["capture_order", body.orderId]);
   const claim = await mutateState(async state => {
     const operations = state.paypalOperations ??= [];
@@ -393,10 +426,10 @@ export async function reconcileWebhook(event: Record<string, unknown>) {
       }
     }
     for (const row of decisions(state).filter(value => !value.arena && value.mode === "sandbox")) {
-      if (!authoritative) continue;
+      if (!authoritative || !row.execution) continue;
       let matches = row.rail?.reference === resourceId;
-      if (!matches && row.execution) {
-        const expected = `CUSTODY-${(await sha256(row.execution.idempotencyKey)).slice(0, 48)}`;
+      const expected = `CUSTODY-${(await sha256(row.execution.idempotencyKey)).slice(0, 48)}`;
+      if (!matches) {
         const batch = authoritative.batch_header as Record<string, unknown> | undefined;
         const sender = batch?.sender_batch_header as Record<string, unknown> | undefined;
         const detail = authoritative.detail as Record<string, unknown> | undefined;
@@ -405,36 +438,93 @@ export async function reconcileWebhook(event: Record<string, unknown>) {
           || family === "invoice" && row.kind === "send_invoice" && detail?.memo === expected;
       }
       if (!matches) continue;
-      row.rail ??= { mode: "sandbox", reference: resourceId, status: "PENDING" };
-      const before = { status: row.status, railStatus: row.rail.status };
-      if (family === "payout") {
-        const header = authoritative.batch_header as Record<string, unknown> | undefined;
-        const items = Array.isArray(authoritative.items) ? authoritative.items as Record<string, unknown>[] : [];
-        row.rail.status = typeof header?.batch_status === "string" ? header.batch_status : "PENDING";
-        if (items.length > 0 && items.every(value => value.transaction_status === "SUCCESS")) row.status = "paid";
-        else if (items.some(value => ["FAILED", "BLOCKED", "RETURNED", "REFUNDED", "REVERSED", "CANCELED"].includes(value.transaction_status as string))) {
-          row.status = "failed";
-          row.rail.status = String(items.find(value => ["FAILED", "BLOCKED", "RETURNED", "REFUNDED", "REVERSED", "CANCELED"].includes(value.transaction_status as string))?.transaction_status);
-        }
-        else if (["DENIED", "CANCELED"].includes(row.rail.status)) row.status = "failed";
-      } else if (family === "refund") {
-        row.rail.status = typeof authoritative.status === "string" ? authoritative.status : "PENDING";
-        if (row.rail.status === "COMPLETED" && row.status !== "refunded") {
-          row.status = "refunded";
-          const order = (state.orders as Order[]).find(value => value.id === row.plan.targetId);
-          if (order) order.refundedCents += row.amountCents;
-        } else if (["FAILED", "CANCELLED"].includes(row.rail.status)) row.status = "failed";
-      } else if (family === "invoice") {
-        row.rail.status = typeof authoritative.status === "string" ? authoritative.status : "UNKNOWN";
-        // A signed, refetched invoice can confirm a send even when the original
-        // HTTP call timed out. Draft/scheduled records cannot confirm a send.
-        if (row.kind === "send_invoice") row.status = invoiceExecutionStatus(row.status as "invoiced" | "pending" | "failed", row.rail.status);
-      }
-      if (!["pending", "failed"].includes(row.status)) row.railError = undefined;
-      updates.push({ decisionId: row.id, before, after: { status: row.status, railStatus: row.rail.status } });
+      updates.push(await applyReconciliation(state, row, authoritative, resourceId));
     }
     events.push(id);
     await appendReceipt(state, "paypal.webhook.verified", { eventId: id, eventType: type, resourceId, family, updates });
     return { received: true, duplicate: false, reconciled: updates.length };
   });
+}
+
+async function applyReconciliation(state: LedgerState, row: StoredDecision, authoritative: Record<string, unknown>, resourceId: string) {
+  const before = { status: row.status, railStatus: row.rail?.status };
+  const expected = `CUSTODY-${(await sha256(row.execution!.idempotencyKey)).slice(0, 48)}`;
+  const mismatch = reconciliationMismatch(row.kind, row.execution!, authoritative, resourceId, expected);
+  if (mismatch) {
+    row.status = "failed";
+    row.railError = mismatch;
+    await appendReceipt(state, "execution.drift.detected", { decisionId: row.id, resourceId, reason: mismatch });
+    return { decisionId: row.id, status: row.status, error: mismatch };
+  }
+  row.rail ??= { mode: "sandbox", reference: resourceId, status: "PENDING" };
+  if (row.kind === "pay_invoice") {
+    const header = authoritative.batch_header as Record<string, unknown>;
+    const items = authoritative.items as Record<string, unknown>[];
+    row.rail.status = typeof header.batch_status === "string" ? header.batch_status : "PENDING";
+    if (items[0].transaction_status === "SUCCESS") row.status = "paid";
+    else if (["FAILED", "BLOCKED", "RETURNED", "REFUNDED", "REVERSED", "CANCELED"].includes(String(items[0].transaction_status)) || ["DENIED", "CANCELED"].includes(row.rail.status)) row.status = "failed";
+    else row.status = "pending";
+  } else if (row.kind === "refund") {
+    row.rail.status = typeof authoritative.status === "string" ? authoritative.status : "PENDING";
+    if (row.rail.status === "COMPLETED") row.status = "refunded";
+    else if (["FAILED", "CANCELLED"].includes(row.rail.status)) row.status = "failed";
+    else row.status = "pending";
+  } else if (row.kind === "send_invoice") {
+    row.rail.status = typeof authoritative.status === "string" ? authoritative.status : "UNKNOWN";
+    row.status = invoiceExecutionStatus(row.status as "invoiced" | "pending" | "failed", row.rail.status);
+  }
+  if (!["pending", "failed"].includes(row.status)) row.railError = undefined;
+  await appendReceipt(state, "execution.reconciled", { decisionId: row.id, before, after: { status: row.status, railStatus: row.rail.status } });
+  return { decisionId: row.id, status: row.status };
+}
+/** Authenticated provider GETs work even when private hosting blocks callbacks. */
+export async function reconcileDecisions(body: Record<string, unknown>, user: Identity) {
+  requireSandboxSeller(user);
+  if (body.decisionId !== undefined && (typeof body.decisionId !== "string" || body.decisionId.length > 100)) throw new HttpError(400, "Choose a stored decision ID.");
+  await ensureLedger();
+  const all = decisions((await readState()).state);
+  if (typeof body.decisionId === "string" && !all.some(value => value.id === body.decisionId)) throw new HttpError(404, "Decision not found.");
+  if (typeof body.decisionId === "string" && !all.find(value => value.id === body.decisionId)?.rail?.reference) throw new HttpError(409, "This action has no confirmed PayPal resource reference. Locate it in the sandbox dashboard and import its order; no provider action was retried.");
+  const selected = all.filter(value => !value.arena && value.mode === "sandbox" && value.execution && value.rail?.reference && (body.decisionId ? value.id === body.decisionId : ["pending", "failed"].includes(value.status))).slice(0, 20);
+  const results: { decisionId: string; status: string; error?: string }[] = [];
+  const operations: { operationId: string; status: string; error?: string }[] = [];
+  for (const row of selected) {
+    try {
+      const ref = row.rail!.reference;
+      const authoritative = row.kind === "pay_invoice" ? await getSandboxPayout(ref) : row.kind === "refund" ? await getSandboxRefund(ref) : row.kind === "send_invoice" ? await getSandboxInvoice(ref) : await getSandboxDispute(ref);
+      const refreshedOrder = row.kind === "refund" ? await getSandboxOrder(row.plan.targetId).catch(() => undefined) : undefined;
+      results.push(await mutateState(async state => {
+        const current = decisions(state).find(value => value.id === row.id)!;
+        if (refreshedOrder) {
+          const previous = (state.orders as Order[]).find(value => value.id === refreshedOrder.id);
+          state.orders = [...state.orders.filter(value => (value as Order).id !== refreshedOrder.id), mergeTrustedOrder(previous, refreshedOrder)];
+        }
+        const result = await applyReconciliation(state, current, authoritative, ref);
+        if (refreshedOrder) confirmRefundSnapshot(state, refreshedOrder);
+        return result;
+      }));
+    } catch (error) { results.push({ decisionId: row.id, status: row.status, error: error instanceof HttpError ? error.message : "PayPal status is unavailable; the reserved action was not resubmitted." }); }
+  }
+  if (!body.decisionId) {
+    const pendingCaptures = ((await readState()).state.paypalOperations ?? []).filter(value => value.kind === "capture_order" && value.orderId && ["failed", "reserved"].includes(value.status)).slice(0, 10);
+    for (const operation of pendingCaptures) {
+      try {
+        const trusted = await getSandboxOrder(operation.orderId!);
+        if (trusted.paymentStatus !== "COMPLETED") { operations.push({ operationId: operation.id, status: operation.status, error: "PayPal has not confirmed a completed capture." }); continue; }
+        operations.push(await mutateState(async state => {
+          const stored = state.paypalOperations!.find(value => value.id === operation.id)!;
+          const original = state.paypalOperations!.find(value => value.kind === "create_order" && value.orderId === trusted.id);
+          if (trusted.capturedCents !== original?.amountCents || trusted.currency !== "USD") throw new HttpError(409, "Captured amount or currency differs from this checkout's reservation.");
+          const before = (state.orders as Order[]).find(value => value.id === trusted.id);
+          state.orders = [...state.orders.filter(value => (value as Order).id !== trusted.id), mergeTrustedOrder(before, trusted)];
+          stored.status = "completed";
+          stored.error = undefined;
+          stored.result = { orderId: trusted.id, status: "COMPLETED", captureId: trusted.captureId, captureStatus: trusted.paymentStatus, amountCents: trusted.capturedCents, currency: trusted.currency };
+          await appendReceipt(state, "checkout.reconciled", { operationId: stored.id, result: stored.result });
+          return { operationId: stored.id, status: stored.status };
+        }));
+      } catch (error) { operations.push({ operationId: operation.id, status: operation.status, error: error instanceof HttpError ? error.message : "Capture status remains uncertain; no capture was resubmitted." }); }
+    }
+  }
+  return { results, operations, queried: selected.length + operations.length, state: await appState(user) };
 }

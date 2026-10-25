@@ -1,4 +1,5 @@
 import { database, HttpError } from "./runtime";
+import type { ConnectionVerification } from "./configuration";
 
 export type ChainReceipt = { index: number; at: string; previousHash: string; hash: string; event: string; data: unknown };
 export type PayPalOperation = {
@@ -11,8 +12,10 @@ export type LedgerState = {
   disputes: unknown[]; policies: unknown[]; decisions: unknown[]; receipts: ChainReceipt[];
   paypalOperations?: PayPalOperation[];
   webhookEvents?: string[];
+  connectionVerifications?: { paypal?: ConnectionVerification; extractor?: ConnectionVerification };
 };
-const KEY = "seller-ledger-v1";
+// Keep the historical fictional ledger untouched; it is never read operationally.
+const KEY = "seller-ledger-real-v1";
 const GENESIS = "0".repeat(64);
 export function canonical(value: unknown): string {
   if (value === undefined) return "null";
@@ -58,7 +61,7 @@ export async function mutateState<T>(change: (state: LedgerState) => Promise<T> 
     const { state, version } = await readState();
     const result = await change(state);
     const payload = JSON.stringify(state);
-    if (new TextEncoder().encode(payload).byteLength > 1_700_000) throw new HttpError(507, "Demo ledger is full. Export and archive it before adding more receipts.");
+    if (new TextEncoder().encode(payload).byteLength > 1_700_000) throw new HttpError(507, "Ledger storage is full. Export and archive it before adding more receipts.");
     const updated = await database().prepare("UPDATE custody_state SET payload = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?").bind(payload, new Date().toISOString(), KEY, version).run();
     if (updated.meta.changes === 1) return result;
   }
