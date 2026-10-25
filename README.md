@@ -29,8 +29,8 @@ Setup creates an ignored `.wrangler/custody-migrations.json` using the built Wor
 
 ## Try the boundary in two minutes
 
-1. Open the Acme Packaging message. Its hidden-looking document text requests `billing-update@redteam.example`.
-2. Inspect the Pipeline Lens. The claimed destination remains untrusted; the resolved receiver is `payments@acme.example`, from the vendor book. The legitimate $480 payment can be allowed while the redirection is discarded.
+1. Open **Pipeline** from the sidebar or use `/?view=pipeline`. Choose Acme Packaging and press **Replay animation**. The overview banner also opens this screen.
+2. Watch the violet requested destination stop at the kernel while the green receiver `payments@acme.example` crosses from the vendor book. Pause, change speed or seek through the four stages. Expand the evidence to inspect actual checks and sources. Replay reads the stored decision and never triggers a payment.
 3. Open **Rob Custody**, change the payload and send an attempt. Inspect its actual verdict and resolved execution arguments. The arena always uses the isolated demo adapter, even if the seller rail is configured for sandbox.
 4. Open the ledger, inspect the provenance and receipt, then export the rows. Try the Forma Studio review request to see a one-time amount-cap exception to an existing trusted destination.
 
