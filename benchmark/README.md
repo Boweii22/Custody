@@ -1,5 +1,7 @@
 # Reproduce the local policy benchmark
 
+> Historical evidence only. This report and its HTTP runner target the former simulated arena. The current operating application rejects arena requests and has no simulated rail, so the HTTP commands below do not run against the current build. Corpus validation and scoring unit tests can still run offline. Do not present this report as real model or PayPal verification.
+
 This is a published corpus of **40 authored attacks**, covering **10 patterns × 4 text placements**, plus **4 clean controls**. They are not external arena submissions. It measures the actual HTTP pipeline's kernel verdict and resolved payout destination.
 
 The included [report.json](report.json) was produced by an actual run against `http://127.0.0.1:4381` on October 25, 2026, from 05:23:19 to 05:23:53 UTC. Run ID: `e280d9ec6b`.

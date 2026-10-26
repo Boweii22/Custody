@@ -2,6 +2,8 @@
 
 Every dollar knows who asked for it.
 
+[Source repository](https://github.com/Boweii22/Custody) · [Hosted workspace](https://custody-money-agent-bowei.no1tomcodes.chatgpt.site/) · [MIT license](LICENSE)
+
 Custody is an owner-private money-agent application with a deterministic provenance gate before PayPal execution. Untrusted message/model claims can identify a request; canonical seller records supply protected destinations. The UI includes a ledger, owner review, verified counterparty books, playbooks and an animated replay of stored decision evidence.
 
 **Status: real sandbox integration in progress; not fully verified or complete.** Owner-supplied PayPal sandbox credentials successfully authenticated against PayPal on October 26, 2026. No PayPal settlement or model call has yet been verified. OAuth, configuration, software tests and a successful deployment are distinct from completed payment operations.
@@ -14,10 +16,10 @@ Requires Node 22.13+ and npm:
 
 ```sh
 npm run setup
-npm run dev
+npm run dev -- --hostname 127.0.0.1 --port 4381
 ```
 
-`setup` installs missing dependencies, generates/builds the Worker and applies local D1 migrations. The local database persists under `.wrangler/state`. Local development identity is for inspecting setup and software verification; it is not a sandbox seller authorization. Use the deployed authenticated Site for seller operations.
+Open `http://127.0.0.1:4381`. `setup` installs missing dependencies, generates/builds the Worker and applies local D1 migrations. The local database persists under `.wrangler/state`. Local development identity is for inspecting setup and software verification; it is not a sandbox seller authorization. Use the deployed authenticated Site for seller operations.
 
 ## Connect your accounts
 
@@ -54,7 +56,7 @@ The historical `benchmark/report.json` records the previous deterministic-extrac
 
 Real provider verification is required for OAuth and model extraction, checkout creation/buyer approval/capture, refund, payout and item reconciliation, invoice send and eligible dispute evidence. Preserve actual provider IDs, timestamps, expected destinations/amounts and sanitized upstream evidence. An API route or a passing unit test does not complete this work.
 
-The original hackathon brief also requires an independently isolated public sandbox arena, provider-state attack scoring and an ungated baseline comparison. The optional Agent Toolkit bridge in `lib/toolkit.ts` is not wired into the running REST application. Document/page ingestion, plain-English playbook compilation and end-to-end callback infrastructure also remain unfinished. There is no production or multi-tenant deployment.
+The earlier product plan includes an independently isolated public sandbox arena, provider-state attack scoring and an ungated baseline comparison. These are additional product goals, not mandatory hackathon eligibility requirements. The optional Agent Toolkit bridge in `lib/toolkit.ts` is not wired into the running REST application. Document/page ingestion, plain-English playbook compilation and end-to-end callback infrastructure also remain unfinished. There is no production or multi-tenant deployment.
 
 The owner-private hosting boundary prevents anonymous PayPal callback delivery without supported service access or a separate relay. Do not broaden the audience to work around it. Authenticated reconciliation handles recorded references; ambiguous operations without a reference need provider investigation.
 
