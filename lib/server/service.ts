@@ -62,7 +62,11 @@ export async function verifyConnections(user: Identity, includeExtractor = true)
   requireSandboxSeller(user, includeExtractor);
   await ensureLedger();
   const fingerprints = await connectionFingerprints();
-  await mutateState(state => { state.connectionVerifications = {}; });
+  await mutateState(state => {
+    state.connectionVerifications ??= {};
+    delete state.connectionVerifications.paypal;
+    if (includeExtractor) delete state.connectionVerifications.extractor;
+  });
   await oauth(true);
   await recordConnectionVerification("paypal", fingerprints.paypal);
   if (includeExtractor) {

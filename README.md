@@ -4,7 +4,7 @@ Every dollar knows who asked for it.
 
 Custody is an owner-private money-agent application with a deterministic provenance gate before PayPal execution. Untrusted message/model claims can identify a request; canonical seller records supply protected destinations. The UI includes a ledger, owner review, verified counterparty books, playbooks and an animated replay of stored decision evidence.
 
-**Status: real sandbox integration in progress; not fully verified or complete.** No credentials have been supplied and no PayPal settlement or model call has been verified during this build. Configuration, software tests and a successful deployment are distinct from successful provider operations.
+**Status: real sandbox integration in progress; not fully verified or complete.** Owner-supplied PayPal sandbox credentials successfully authenticated against PayPal on October 26, 2026. No PayPal settlement or model call has yet been verified. OAuth, configuration, software tests and a successful deployment are distinct from completed payment operations.
 
 The operating application starts with an empty ledger, no fictional counterparties or orders and disabled policy templates. Missing credentials block processing. Model failures do not fall back to a simulated extractor. Legacy fictional state stays in its old database namespace; the real operating ledger uses a separate namespace. Test fixtures remain only as explicit software-test inputs. The simulated arena is unavailable in the real workspace.
 

@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { AppState } from "../app/ui-types.ts";
 import { hasExtractorCredentials, initialPolicies, missingExecutionConfiguration, operatingMode } from "../lib/server/configuration.ts";
 
 const fakeEnvironment: Record<string, unknown> = {};
 (globalThis as typeof globalThis & { custodyTestEnvironment: unknown }).custodyTestEnvironment = fakeEnvironment;
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === "cloudflare:workers") return { url: "data:text/javascript,export const env = globalThis.custodyTestEnvironment", shortCircuit: true };
+  if (specifier.startsWith("@/")) return { url: new URL(`../${specifier.slice(2)}.ts`, import.meta.url).href, shortCircuit: true };
   if (specifier.startsWith(".") && context.parentURL && !/\.[a-z]+$/i.test(specifier)) {
     const url = new URL(`${specifier}.ts`, context.parentURL);
     if (url.protocol === "file:" && existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true };
@@ -119,6 +121,73 @@ test("real connection verification records successful responses, and credential 
     const state = await appState(hosted);
     assert.equal(state.readiness.checks.find(value => value.id === "paypal")?.status, "ready");
     assert.equal(state.readiness.checks.find(value => value.id === "extractor")?.status, "unverified");
+    assert.deepEqual(state.decisions, []);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("PayPal-only verification works without a model and retains request authentication and scope validation", async () => {
+  reset(); Object.assign(fakeEnvironment, configured);
+  delete fakeEnvironment.EXTRACTOR_URL; delete fakeEnvironment.EXTRACTOR_KEY; delete fakeEnvironment.EXTRACTOR_MODEL;
+  const originalFetch = globalThis.fetch;
+  const { POST } = await import("../app/api/connections/verify/route.ts");
+  let oauthCalls = 0;
+  const request = (body: unknown, options: { origin?: string; authenticate?: boolean; local?: boolean } = {}) => {
+    const origin = options.local ? "http://localhost:4381" : "https://custody.owner.example";
+    return new Request(`${origin}/api/connections/verify`, { method: "POST", headers: {
+      "Content-Type": "application/json", Origin: options.origin ?? origin,
+      ...(options.authenticate === false ? {} : { "oai-authenticated-user-id": hosted.id, "oai-authenticated-user-email": hosted.email }),
+    }, body: JSON.stringify(body) });
+  };
+  try {
+    globalThis.fetch = async (url, options) => {
+      assert.equal(String(url), "https://api-m.sandbox.paypal.com/v1/oauth2/token");
+      assert.equal(options?.method, "POST");
+      oauthCalls++;
+      return Response.json({ access_token: "test-token", expires_in: 3600 });
+    };
+    const response = await POST(request({ scope: "paypal" }));
+    assert.equal(response.status, 200);
+    const { state } = await response.json() as { state: AppState };
+    assert.equal(oauthCalls, 1);
+    assert.equal(state.readiness.checks.find(value => value.id === "paypal")?.status, "ready");
+    assert.equal(state.readiness.checks.find(value => value.id === "extractor")?.status, "missing");
+    assert.equal(state.readiness.ready, false);
+    assert.deepEqual(state.decisions, []);
+    assert.equal((await POST(request({}))).status, 503);
+    assert.equal((await POST(request({ scope: "all" }))).status, 503);
+    for (const scope of ["model", "sandbox", null, false, {}, []]) assert.equal((await POST(request({ scope }))).status, 400);
+    assert.equal((await POST(request({ scope: "paypal" }, { authenticate: false }))).status, 401);
+    assert.equal((await POST(request({ scope: "paypal" }, { origin: "https://other.example" }))).status, 403);
+    assert.equal((await POST(request({ scope: "paypal" }, { local: true }))).status, 403);
+    assert.equal(oauthCalls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("PayPal-only rechecks preserve an existing model verification and invalidate only PayPal on OAuth failure", async () => {
+  reset(); Object.assign(fakeEnvironment, configured);
+  const originalFetch = globalThis.fetch;
+  const { appState, verifyConnections } = await import("../lib/server/service.ts");
+  const { readState } = await import("../lib/server/store.ts");
+  const claims = { kind: "pay_invoice", vendor: "", customer: "", invoiceNumber: "", orderId: "", disputeId: "", currency: "", requestedReceiver: null, amountCents: null };
+  try {
+    globalThis.fetch = async url => String(url).includes("oauth2") ? Response.json({ access_token: "test-token", expires_in: 3600 }) : Response.json({ choices: [{ message: { content: JSON.stringify(claims) } }] });
+    await verifyConnections(hosted);
+    const modelVerification = (await readState()).state.connectionVerifications?.extractor;
+    let calls = 0;
+    globalThis.fetch = async url => {
+      assert.ok(String(url).endsWith("/v1/oauth2/token")); calls++;
+      return Response.json({ access_token: "test-token", expires_in: 3600 });
+    };
+    assert.equal((await verifyConnections(hosted, false)).state.readiness.ready, true);
+    assert.equal(calls, 1);
+    assert.deepEqual((await readState()).state.connectionVerifications?.extractor, modelVerification);
+    globalThis.fetch = async () => new Response("unavailable", { status: 503 });
+    await assert.rejects(verifyConnections(hosted, false));
+    const state = await appState(hosted);
+    assert.equal(state.readiness.ready, false);
+    assert.equal(state.readiness.checks.find(value => value.id === "paypal")?.status, "unverified");
+    assert.equal(state.readiness.checks.find(value => value.id === "extractor")?.status, "ready");
+    assert.deepEqual((await readState()).state.connectionVerifications?.extractor, modelVerification);
     assert.deepEqual(state.decisions, []);
   } finally { globalThis.fetch = originalFetch; }
 });

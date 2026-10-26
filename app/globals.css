@@ -28,3 +28,5 @@
 @media(max-width:760px){.pipeline-page-heading h1{font-size:26px}.pipeline-page-heading h1 em{font-size:33px}.pipeline-stage .ps-intro{padding:13px 18px}.pipeline-casebar .pipeline-replay-trigger{font-size:11px;min-height:37px}.pipeline-page-heading>div{flex:1}.pipeline-page-heading p{font-size:11px}.pipeline-next-list strong{font-size:13px}.pipeline-next-list small{font-size:11px}}
 
 .checkout-approval{flex-basis:100%;margin:4px 0!important}.form-hint .text-button{margin-top:7px;font-size:10px}
+
+.connection-check-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}@media(max-width:720px){.connection-check-actions{justify-content:flex-start;width:100%}}

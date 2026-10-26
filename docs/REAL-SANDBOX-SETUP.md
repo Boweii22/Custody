@@ -15,7 +15,7 @@ Official provider instructions: [PayPal REST onboarding](https://developer.paypa
 
 ## Verify real operations
 
-1. Use **Verify connections**. A configured value is not a verified service. Resolve authentication, permission, model and database errors before proceeding.
+1. Use **Verify PayPal** to check actual sandbox OAuth without a model. Once model credentials are configured, use **Verify all connections**. A configured value is not a verified service. Resolve authentication, permission, model and database errors before proceeding.
 2. Create a small USD sandbox checkout in Connections. Open its actual PayPal approval URL and approve with a separate sandbox personal buyer account. Return and explicitly capture the approved order. Confirm the provider order and capture IDs in both Custody and PayPal.
 3. Add a genuine sandbox recipient to the vendor book and a sandbox customer to the customer book through explicit owner verification. Enable the relevant playbooks and choose conservative caps.
 4. Submit your actual request text. Inspect the decision receipt, resolved destination, provider reference and current status. Pending or failed responses do not establish settlement.
