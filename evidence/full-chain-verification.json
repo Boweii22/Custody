@@ -1,0 +1,77 @@
+{
+  "format": "custody-private-chain-verification-summary-v1",
+  "verifiedAt": "2026-10-29T07:46:08.853Z",
+  "sourceFile": "Custody-full-receipt-chain-private.json",
+  "sourceFileSha256": "bcb810497a43a1a8ad05073cc60204ecd686e491915d1c3e75f8620c5ecf39e0",
+  "algorithmSource": "lib/server/store.ts canonical/appendReceipt/verifyChain",
+  "algorithmSourceSha256": "664b8004cb8d4c47ecf86f62adc75bbce930048eb9b8a0ddca6143e61db25ec1",
+  "scope": "Offline SHA-256 event-hash and previous-hash continuity plus linkage to two public historical receipts. This is not independently anchored proof and does not freshly verify provider status.",
+  "allChecksPassed": true,
+  "checks": {
+    "format": true,
+    "sandbox": true,
+    "expectedCount": true,
+    "indicesContiguous": true,
+    "previousHashesContinuous": true,
+    "allEventHashesValid": true,
+    "allTimestampsParse": true,
+    "claimedSummaryMatches": true,
+    "expectedHead": true,
+    "refundCreationIndex19": true,
+    "attackCreationIndex22": true,
+    "publicRefundEmbeddedReceiptMatchesChain": true,
+    "publicAttackEmbeddedReceiptMatchesChain": true,
+    "singleDecisionExecutionResult": true,
+    "executionFollowsCreation": true,
+    "executionRecordsCompletedRefund": true,
+    "creationBindsOriginalCaptureAndAmount": true,
+    "publicCurrentRefundAgreesWithRecordedExecution": true,
+    "historicalAttackHeldWithoutExecution": true,
+    "historicalRecordsPredateTaskBinding": true
+  },
+  "eventCount": 22,
+  "validEventHashes": 22,
+  "validPreviousHashLinks": 22,
+  "head": "0770e831b1bb873374de2130fdbc871b6692472ea7e2804b37412a553daf9423",
+  "publicReceiptLinks": [
+    {
+      "file": "evidence/real-refund-receipt.json",
+      "index": 19,
+      "decisionId": "decision-12818d5c-b86a-48b9-9bb8-cf0c77c92cc6",
+      "embeddedReceiptHash": "4c5b6de7432076346a04805a1020e789de712157bb754164dc9f479cace56d44"
+    },
+    {
+      "file": "evidence/security-test-receipt.json",
+      "index": 22,
+      "decisionId": "decision-671610f0-7370-4832-b01a-a29f4621f0a8",
+      "embeddedReceiptHash": "0770e831b1bb873374de2130fdbc871b6692472ea7e2804b37412a553daf9423"
+    }
+  ],
+  "recordedRefundRelation": {
+    "creationIndex": 19,
+    "executionResultIndex": 20,
+    "decisionId": "decision-12818d5c-b86a-48b9-9bb8-cf0c77c92cc6",
+    "tool": "paypal.payments.refund",
+    "orderId": "5F683412PF382225E",
+    "captureId": "8HE37607J11395116",
+    "amountCents": 100,
+    "currency": "USD",
+    "amountSource": "Linked decision.created execution arguments; execution.result itself records the outcome/reference.",
+    "providerReference": "0UJ640930F074291C",
+    "recordedStatus": "COMPLETED",
+    "historicalPreTaskBinding": true
+  },
+  "recordedAttackRelation": {
+    "creationIndex": 22,
+    "decisionId": "decision-671610f0-7370-4832-b01a-a29f4621f0a8",
+    "status": "held",
+    "executionRecorded": false,
+    "historicalPreTaskBinding": true
+  },
+  "privacy": {
+    "rawChainKeptPrivate": true,
+    "actorIdsOmitted": true,
+    "approvalUrlsOmitted": true,
+    "fullChainCopiedToPublicSource": false
+  }
+}

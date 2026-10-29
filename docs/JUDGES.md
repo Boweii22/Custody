@@ -1,10 +1,12 @@
 # Run Custody as a judge
 
-Custody has two distinct ways to inspect it: an interactive viewer of actual recorded evidence and an opt-in local sandbox workspace using your own accounts. Neither requires the author's API keys or access to their private merchant account.
+[Open the public judge portal](https://boweii22.github.io/Custody/) · [Watch the 1:34 demonstration](https://www.youtube.com/watch?v=FEn-QmiAO3g) · [Public MIT source](https://github.com/Boweii22/Custody)
+
+The published portal requires no sign-in, installation or API key. Inspect and replay actual recorded decisions, inspect the 16-case real-model evaluation, and download the published evidence. The portal has no payment writer. For an independent fresh integration run, the repository also provides a loopback-only sandbox workspace using your own accounts. Neither path requires the author's API keys or access to their private merchant account.
 
 ## 1. Inspect the actual recorded decisions
 
-From a fresh clone, with Node 22.13+ and npm installed:
+Open the [published judge portal](https://boweii22.github.io/Custody/) directly, or run the same evidence experience locally from a fresh clone with Node 22.13+ and npm installed:
 
 ```sh
 git clone https://github.com/Boweii22/Custody.git
@@ -19,7 +21,9 @@ The viewer uses sanitized actual decision/provider evidence committed under `evi
 
 This path has no credential requirement, no invented business ledger and no model-token cost. It is an evidence viewer, not a claim that a historical transaction has just executed again.
 
-For a standalone static evidence build, run `npm run build:judge`. The output is `dist-judge/`, with no server payment route or runtime keys. The repository includes a GitHub Pages workflow for this artifact. A workflow file or local build does not prove a public deployment: use the verified published link supplied with the final submission. The hosted owner workspace's access policy remains separate.
+For a standalone static evidence build, run `npm run build:judge`. The output is `dist-judge/`, with no server payment route or runtime keys. The [GitHub Pages publication](https://github.com/Boweii22/Custody/actions/runs/40837584386) succeeded and its public portal was browser-verified. The hosted owner workspace's access policy remains separate and owner-only.
+
+The [sanitized full-chain verification](../evidence/full-chain-verification.json) records successful offline verification of 22 event hashes/links and the public receipt linkage at indices 19 and 22. Its linked execution event records the historical completed refund. The raw chain is kept private; the summary exposes no internal actor IDs or approval URLs. This verifies internal hash continuity, not an external anchor or a new live payment.
 
 ## 2. Run the actual provider flow with your own accounts
 
@@ -81,7 +85,7 @@ npm run typecheck
 node scripts/smoke-api.mjs http://127.0.0.1:4381
 ```
 
-The smoke test is for the ordinary unconfigured/inspection boundary; run it in a fresh checkout without the local sandbox opt-in. Software fixtures and mocked provider contracts are labelled tests, not operating data or proof of provider settlement.
+The current software suite has 59 passing tests. The smoke test is for the ordinary unconfigured/inspection boundary; run it in a fresh checkout without the local sandbox opt-in. Software fixtures and mocked provider contracts are labelled tests, not operating data or proof of provider settlement.
 
 ## What is deliberately outside the demonstrated story
 

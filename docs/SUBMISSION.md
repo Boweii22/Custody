@@ -1,6 +1,8 @@
 # Custody — submission copy
 
-This is the evidence-led submission text. Review the final video URL, source visibility and access path before submitting Devpost. Do not claim that a publication approval or a saved draft is a completed submission.
+[Public judge portal](https://boweii22.github.io/Custody/) · [Public 1:34 video](https://www.youtube.com/watch?v=FEn-QmiAO3g) · [Public MIT repository](https://github.com/Boweii22/Custody)
+
+These three publication paths are live and verified. This file is ready-to-paste submission content; it does not establish that a Devpost draft has been saved or an entry submitted. The entrant's sign-in, team fields, eligibility/rights review, required terms and final Devpost submission remain human steps.
 
 ## Project name
 
@@ -39,7 +41,7 @@ The recorded core includes a completed USD 1.00 PayPal sandbox refund and an own
 
 The submission video uses generated HeyGen narration over actual interface/evidence footage. That narration is presentation material, not evidence that a payment or security check ran.
 
-The protected hosted workspace uses Sites identity. A loopback-only, token-authenticated opt-in lets judges reproduce real integrations with their own accounts. A credential-free local viewer exposes sanitized actual records and labelled replay.
+The protected hosted workspace uses Sites identity. A loopback-only, token-authenticated opt-in lets judges reproduce real integrations with their own accounts. The public GitHub Pages portal and local viewer expose sanitized actual records, labelled replay and the real-model evaluation without credentials or payment writes.
 
 ## Challenges
 
@@ -49,7 +51,9 @@ We separated configuration, model verification, allowed plans, provider completi
 
 ## What we are proud of
 
-The actual model-to-kernel-to-PayPal refund flow has run. The held reattempt has an exported receipt and a provider history check showing no second refund. The visual pipeline makes a security decision understandable without relying on a model-written explanation. In one reproducible real-model/read-only run, all 16 authored-case expectations were met, including 3 clean controls with no false holds. It made no payment calls, and the before/after PayPal capture/refund amounts and refund IDs were unchanged. The complete report preserves actual claims, checks, request IDs and scope; this small corpus is not a universal security success rate.
+The actual model-to-kernel-to-PayPal refund flow has run. The held reattempt has an exported receipt and a provider history check showing no second refund. These two historical hosted records predate the later task-binding change. The current software suite has 59 passing tests; in one reproducible real-model/read-only run, all 16 authored-case expectations were met, including 3 clean controls with no false holds. It made no payment calls, and the before/after PayPal capture/refund amounts and refund IDs were unchanged. The complete report preserves actual claims, checks, request IDs and scope; this small corpus is not a universal security success rate.
+
+The visual pipeline makes a security decision understandable without relying on a model-written explanation. An offline verification also checked all 22 event hashes and continuity links in the private exported receipt chain and matched both public receipts to it. A sanitized summary is public; the raw chain remains private. This is internal continuity evidence, not externally anchored proof or a new provider-status query.
 
 ## What we learned
 
@@ -61,21 +65,24 @@ The commercial request still needs merchant verification. Future work includes a
 
 ## How to test
 
-1. Clone the public source repository and follow [JUDGES.md](JUDGES.md).
-2. Run the credential-free `/judge` viewer to inspect the actual recorded refund and held attack.
+1. Open the [public judge portal](https://boweii22.github.io/Custody/) with no login or API key. Inspect the actual recorded refund, held attack, pipeline replay and 16-case evaluation.
+2. Watch the [1:34 public demonstration](https://www.youtube.com/watch?v=FEn-QmiAO3g). To reproduce locally, clone the public source and follow [JUDGES.md](JUDGES.md).
 3. For a fresh integration run, explicitly enable the loopback sandbox, provide your own sandbox/model credentials, approve a checkout using a separate sandbox buyer, and authorize a bounded refund task.
 4. Run the documented real-model/read-only evaluation against your own actual captures. Its scope is distinct from the recorded hosted money operation.
 
-Source: https://github.com/Boweii22/Custody
+Judge portal: https://boweii22.github.io/Custody/
 
-Private owner workspace: https://custody-money-agent-bowei.no1tomcodes.chatgpt.site/
+Video: https://www.youtube.com/watch?v=FEn-QmiAO3g
 
-The private owner URL is not an anonymous judge login. Use the final approved judge portal if one is published; the repository includes the complete independent local path.
+Public MIT source: https://github.com/Boweii22/Custody
 
-## Final submission fields to resolve
+Full-chain verification summary: [evidence/full-chain-verification.json](../evidence/full-chain-verification.json)
 
-- Confirm public repository visibility and MIT license detection.
-- Link the completed public YouTube upload, under three minutes. The local video/storyboard alone is not a public video link.
-- Include the tested judge instructions and actual accessible build path.
-- Confirm all team/entrant fields and any required terms through the human submitter.
-- Use only the observed evaluation totals from the reviewed report. Do not claim measured merchant savings, customer adoption, universal injection resistance or winning odds.
+The owner merchant workspace remains private. Judges do not need that account or its keys; the public portal and complete own-account local path are separate.
+
+## Remaining Devpost handoff
+
+- Sign in to Devpost and confirm hackathon registration and the correct entrant/team details.
+- Paste the final links and description, review the [official eligibility, rights and submission rules](https://paypalaihackathon.devpost.com/rules), and accept required terms through the human submitter.
+- Submit the entry, then check Devpost's actual confirmation. Published code, Pages and YouTube do not themselves submit a Devpost entry.
+- Preserve the scope of the observed results. No merchant savings, customer adoption, universal injection resistance or winning odds have been measured or claimed.
