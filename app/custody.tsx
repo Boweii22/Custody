@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen, Check, CheckCheck, ChevronDown, ChevronRight, CircleHelp, Download, FileCheck2, FileText, Fingerprint, Inbox, LayoutDashboard, LockKeyhole, Mail, Menu, Moon, MoreHorizontal, Play, Plus, RefreshCw, Search, Send, Settings2, Shield, ShieldCheck, Terminal, Users, X } from 'lucide-react';
 import type { ColDef, GridApi } from 'ag-grid-community';
 import type { AppState, Decision, Policy } from './ui-types';
+import type { PaymentKind } from '../lib/kernel';
+import { apiFetch, clearLocalSandboxToken, isLocalSandboxBrowser, setLocalSandboxToken } from './api-client';
 import PipelineStage from './pipeline-stage';
 import SandboxWorkspace, { Readiness } from './sandbox-workspace';
 async function apiJson<T>(response: Response): Promise<T & {
@@ -20,6 +22,13 @@ catch {
 } };
 const short = (s: string, n = 26) => s.length > n ? s.slice(0, n) + '…' : s;
 const statusLabel = (s: string) => (({ paid: 'Paid', refunded: 'Refunded', invoiced: 'Invoice sent', evidence: 'Evidence submitted', held: 'Needs review', blocked: 'Blocked', rejected: 'Rejected', pending: 'Processing', failed: 'Unconfirmed' } as Record<string, string>)[s] || s);
+const taskLabels: Record<PaymentKind, string> = { refund: 'Refund an original payment', pay_invoice: 'Pay a verified vendor', send_invoice: 'Invoice a verified customer', dispute: 'Submit recorded dispute evidence' };
+function exactUsdCents(value: string): number | null {
+    if (!/^(?:0|[1-9]\d{0,6})(?:\.\d{1,2})?$/.test(value)) return null;
+    const [whole, fraction = ''] = value.split('.');
+    const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+    return Number.isSafeInteger(cents) && cents > 0 && cents <= 1000000 ? cents : null;
+}
 type View = 'overview' | 'inbox' | 'ledger' | 'playbooks' | 'arena' | 'vendors' | 'pipeline' | 'connections';
 const isView=(value:string|null):value is View=>!!value&&['overview','inbox','ledger','playbooks','arena','vendors','pipeline','connections'].includes(value);
 type Modal = 'compose' | 'search' | 'connection' | 'about' | 'vendor' | 'policy' | null;
@@ -37,25 +46,31 @@ function Avatar({ name, index = 0 }: {
 export default function Custody() {
     const [data, setData] = useState<AppState | null>(null), [error, setError] = useState(''), [view, setView] = useState<View>('overview'), [selected, setSelected] = useState<string>(''), [filter, setFilter] = useState('all'), [query, setQuery] = useState(''), [modal, setModal] = useState<Modal>(null), [busy, setBusy] = useState(false), [toast, setToast] = useState(''), [mobile, setMobile] = useState(false), [night, setNight] = useState(false), [lensTab, setLensTab] = useState('pipeline'), [replay, setReplay] = useState(0);
     const [subject, setSubject] = useState(''), [text, setText] = useState('');
+    const [taskKind, setTaskKind] = useState<PaymentKind>('refund'), [taskTarget, setTaskTarget] = useState(''), [taskMaximum, setTaskMaximum] = useState(''), [taskConfirmed, setTaskConfirmed] = useState(false);
+    const [localBrowser, setLocalBrowser] = useState(false), [localTokenInput, setLocalTokenInput] = useState(''), [localAuthRequired, setLocalAuthRequired] = useState(false);
     const grid = useRef<GridApi<Decision> | null>(null);
     const dialog = useRef<HTMLElement | null>(null);
     const [savingPolicy, setSavingPolicy] = useState(''), [editPolicy, setEditPolicy] = useState<Policy | null>(null), [cap, setCap] = useState('500'), [refundDays, setRefundDays] = useState('30');
     const [vendorDraft, setVendorDraft] = useState({ id: '', name: '', email: '', limit: '500', aliases: '', verified: false });
     const notify = useCallback((message: string) => { setToast(message); window.setTimeout(() => setToast(''), 4500); }, []);
     const load = useCallback(async () => { try {
-        const r = await fetch('/api/state');
+        const r = await apiFetch('/api/state');
         const s = await apiJson<AppState>(r);
+        setLocalAuthRequired(isLocalSandboxBrowser() && [401, 403].includes(r.status));
         if (!r.ok)
             throw Error(s.error || 'Could not load the ledger.');
         setData(s);
         setSelected(old => old || s.decisions?.[0]?.id || '');
         setError('');
+        return s;
     }
     catch (e) {
         setError(e instanceof Error ? e.message : 'Connection failed');
+        return null;
     } }, []);
     useEffect(()=>{const sync=()=>{const candidate=new URLSearchParams(window.location.search).get('view');setView(isView(candidate)?candidate:new URLSearchParams(window.location.search).has('checkout')?'connections':'overview')};sync();window.addEventListener('popstate',sync);return()=>window.removeEventListener('popstate',sync)},[]);
     useEffect(() => { load(); const timer = setInterval(load, 30000); return () => clearInterval(timer); }, [load]);
+    useEffect(() => { setLocalBrowser(isLocalSandboxBrowser()); }, []);
     useEffect(() => { const handler = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setModal('search');
@@ -65,20 +80,43 @@ export default function Custody() {
     } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
     useEffect(() => { const v = localStorage.getItem('custody-night') === 'true'; setNight(v); }, []);
     useEffect(() => { document.documentElement.dataset.theme = night ? 'night' : 'day'; localStorage.setItem('custody-night', String(night)); }, [night]);
-    useEffect(() => { if (!modal)
-        return; const opener = document.activeElement as HTMLElement | null; const overflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; const timer = requestAnimationFrame(() => { const el = dialog.current; const focus = el?.querySelector<HTMLElement>('input:not([type=checkbox]),textarea') || el?.querySelector<HTMLElement>('button,a[href],[tabindex]'); (focus || el)?.focus(); }); const trap = (e: KeyboardEvent) => { if (e.key !== 'Tab' || !dialog.current)
-        return; const nodes = Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select,[tabindex]:not([tabindex="-1"])')).filter(n => n.getClientRects().length > 0); if (!nodes.length) {
-        e.preventDefault();
-        dialog.current.focus();
-        return;
-    } const first = nodes[0], last = nodes[nodes.length - 1]; if (e.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
-        e.preventDefault();
-        last.focus();
-    }
-    else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-    } }; document.addEventListener('keydown', trap); return () => { cancelAnimationFrame(timer); document.removeEventListener('keydown', trap); document.body.style.overflow = overflow; opener?.focus(); }; }, [modal]);
+    useEffect(() => {
+        if (!modal) return;
+        const opener = document.activeElement as HTMLElement | null;
+        const overflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        const timer = requestAnimationFrame(() => {
+            const element = dialog.current;
+            const focus = element?.querySelector<HTMLElement>('select:not(:disabled),input:not([type=checkbox]):not(:disabled),textarea:not(:disabled)')
+                || element?.querySelector<HTMLElement>('button:not(:disabled),a[href],[tabindex]');
+            (focus || element)?.focus();
+        });
+        const trap = (event: KeyboardEvent) => {
+            if (event.key !== 'Tab' || !dialog.current) return;
+            const nodes = Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex]:not([tabindex="-1"])'))
+                .filter(node => node.getClientRects().length > 0);
+            if (!nodes.length) {
+                event.preventDefault();
+                dialog.current.focus();
+                return;
+            }
+            const first = nodes[0], last = nodes[nodes.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        document.addEventListener('keydown', trap);
+        return () => {
+            cancelAnimationFrame(timer);
+            document.removeEventListener('keydown', trap);
+            document.body.style.overflow = overflow;
+            if (opener?.isConnected) opener.focus({ preventScroll: true });
+        };
+    }, [modal]);
     const navigate = (v: View) => { setView(v); setMobile(false); setQuery('');const url=new URL(window.location.href);if(v==='overview')url.searchParams.delete('view');else url.searchParams.set('view',v);window.history.replaceState(window.history.state,'',url);window.scrollTo({top:0,behavior:'auto'}); };
     const all = (data?.decisions || []).filter(decision => decision.mode === 'sandbox' && !decision.arena), active = all.find(x => x.id === selected) || all[0];
     const pipelineCases=all;
@@ -86,10 +124,31 @@ export default function Custody() {
     const openPipeline=(decision?:Decision)=>{const target=decision||active;if(target)setSelected(target.id);navigate('pipeline')};
     const signatureCase=all[0];
     const ready = !!data?.readiness?.ready;
+    const taskTargets = taskKind === 'refund' ? (data?.orders || []).map(order => ({ id: order.id, label: `${order.id} · ${order.customerName} · ${money(Math.max(0, order.capturedCents - order.refundedCents), order.currency)} remaining`, detail: `Original capture ${order.captureId} · ${money(order.capturedCents, order.currency)} captured · ${money(order.refundedCents, order.currency)} refunded.`, exhausted: order.refundedCents >= order.capturedCents }))
+        : taskKind === 'pay_invoice' ? (data?.vendors || []).filter(vendor => vendor.verified === true).map(vendor => ({ id: vendor.id, label: vendor.name, detail: `Owner-verified vendor destination: ${String(vendor.email || vendor.paypalEmail || '')}`, exhausted: false }))
+        : taskKind === 'send_invoice' ? (data?.customers || []).filter(customer => customer.verified).map(customer => ({ id: customer.id, label: customer.name, detail: `Owner-verified customer destination: ${customer.email}`, exhausted: false }))
+        : (data?.disputes || []).map(dispute => ({ id: dispute.id, label: `${dispute.id} · ${dispute.status}`, detail: `Recorded order ${dispute.orderId} · evidence deadline ${new Date(dispute.deadline).toLocaleString('en-GB')}`, exhausted: false }));
+    const selectedTaskTarget = taskTargets.find(target => target.id === taskTarget);
+    const taskMaximumCents = exactUsdCents(taskMaximum);
+    const taskPolicy = data?.policies.find(value => value.kind === taskKind);
+    const taskReady = !!selectedTaskTarget && taskMaximumCents !== null && taskConfirmed;
+    const openCompose = () => { setSubject(''); setText(''); setTaskKind('refund'); setTaskTarget(''); setTaskMaximum(''); setTaskConfirmed(false); setModal('compose'); };
+    const unlockLocalSandbox = async () => {
+        if (!localBrowser || !localTokenInput.trim()) return;
+        setBusy(true);
+        setLocalSandboxToken(localTokenInput);
+        setLocalTokenInput('');
+        try {
+            const loaded = await load();
+            if (loaded && !loaded.identity.local) notify('Local sandbox unlocked for this tab. Check provider readiness before processing a task.');
+            else { clearLocalSandboxToken(); notify('Local sandbox did not unlock. Check the opt-in setup and local token file.'); }
+        } finally { setBusy(false); }
+    };
+    const lockLocalSandbox = async () => { clearLocalSandboxToken(); setData(null); await load(); notify('Local sandbox locked. The token was removed from tab memory.'); };
     const filtered = all.filter(d => (filter === 'all' || (filter === 'review' ? ['held', 'blocked', 'failed', 'pending'].includes(d.status) : filter === 'protected' ? ['held', 'blocked', 'rejected'].includes(d.status) : ['paid', 'refunded', 'invoiced', 'evidence', 'rejected'].includes(d.status))) && `${d.subject} ${d.counterparty} ${d.status}`.toLowerCase().includes(query.toLowerCase()));
-    const process = async () => { if (!text.trim() || !ready)
+    const process = async () => { if (!text.trim() || !ready || !taskReady || taskMaximumCents === null)
         return; setBusy(true); try {
-        const r = await fetch('/api/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, subject }) });
+        const r = await apiFetch('/api/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, subject, authorization: { kind: taskKind, targetId: taskTarget, maxAmountCents: taskMaximumCents, confirmed: true } }) });
         const s = await apiJson<{
             state: AppState;
             decision: Decision;
@@ -114,7 +173,7 @@ export default function Custody() {
     const reconcile = async (decisionId?: string) => {
         setBusy(true);
         try {
-            const response = await fetch('/api/paypal/reconcile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(decisionId ? { decisionId } : {}) });
+            const response = await apiFetch('/api/paypal/reconcile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(decisionId ? { decisionId } : {}) });
             const result = await apiJson<{ state: AppState; results: Array<{ decisionId: string; status?: string; error?: string }> }>(response);
             if (!response.ok) throw Error(result.error || 'Could not fetch current PayPal status.');
             setData(result.state);
@@ -125,7 +184,7 @@ export default function Custody() {
     };
     const approval = async (action: string) => { if (!active)
         return; setBusy(true); try {
-        const r = await fetch('/api/decisions/' + active.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+        const r = await apiFetch('/api/decisions/' + active.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
         const s = await apiJson<{
             state: AppState;
             decision: Decision;
@@ -142,7 +201,7 @@ export default function Custody() {
         setBusy(false);
     } };
     const savePolicy = async (p: Policy, enabled: boolean) => { setSavingPolicy(p.id); try {
-        const r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'policy', policy: { ...p, enabled } }) });
+        const r = await apiFetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'policy', policy: { ...p, enabled } }) });
         const s = await apiJson<{
             state: AppState;
             decision: Decision;
@@ -160,13 +219,25 @@ export default function Custody() {
         setSavingPolicy('');
     } };
     const exportReceipt = (d: Decision) => { download('custody-receipt-' + d.id + '.json', JSON.stringify(d, null, 2), 'application/json'); notify('Decision receipt exported.'); };
-    const canApprove = (d: Decision) => !!d.reasons?.length && d.reasons.every(r => !!r && typeof r === 'object' && ['amount_cap', 'vendor_cap'].includes(String((r as Record<string, unknown>).code)));
+    const exportChain = async () => {
+        setBusy(true);
+        try {
+            const response = await apiFetch('/api/receipts');
+            const result = await apiJson<{ format: string; exportedAt: string; environment: string; chain: AppState['chain']; receipts: unknown[] }>(response);
+            if (!response.ok) throw Error(result.error || 'Could not export the receipt chain.');
+            if (result.format !== 'custody-receipt-chain-v1' || !Array.isArray(result.receipts)) throw Error('Invalid receipt chain response.');
+            download('custody-receipt-chain-' + result.exportedAt.replace(/[.:]/g, '-') + '.json', JSON.stringify(result, null, 2), 'application/json');
+            notify(result.chain.verified ? 'Full receipt chain exported with linked execution events.' : 'Receipt chain exported. Its integrity check needs review.');
+        } catch (failure) { notify(failure instanceof Error ? failure.message : 'Receipt export failed.'); }
+        finally { setBusy(false); }
+    };
+    const canApprove = (d: Decision) => !!d.ownerAuthorization && !!d.reasons?.length && d.reasons.every(r => !!r && typeof r === 'object' && ['amount_cap', 'vendor_cap'].includes(String((r as Record<string, unknown>).code)));
     const saveVendor = async () => { if (!vendorDraft.verified)
         return; setBusy(true); try {
         const amount = Number(vendorDraft.limit) * 100;
         if (!Number.isSafeInteger(amount) || amount <= 0)
             throw Error('Use an exact positive allowance with up to two decimal places.');
-        const r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'vendor', vendor: { ...(vendorDraft.id ? { id: vendorDraft.id } : {}), name: vendorDraft.name, email: vendorDraft.email, limitCents: amount, verified: true, aliases: vendorDraft.aliases.split(',').map(a => a.trim()).filter(Boolean) } }) });
+        const r = await apiFetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'vendor', vendor: { ...(vendorDraft.id ? { id: vendorDraft.id } : {}), name: vendorDraft.name, email: vendorDraft.email, limitCents: amount, verified: true, aliases: vendorDraft.aliases.split(',').map(a => a.trim()).filter(Boolean) } }) });
         const result = await apiJson<{
             state: AppState;
         }>(r);
@@ -207,14 +278,15 @@ export default function Custody() {
   <div className="main-shell" inert={!!modal}>
    <header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setMobile(true)}><Menu size={20}/></button><span>Workspace</span><ChevronRight size={12}/><strong>{({ overview: 'Overview', pipeline: 'Pipeline', inbox: 'Inbox', ledger: 'Ledger', playbooks: 'Playbooks', arena: 'Arena status', vendors: 'Vendor book', connections: 'Connections' })[view]}</strong></div><div className="topbar-right"><span className="environment"><span className="online-dot"/>{data?.readiness?.ready ? 'SANDBOX · VERIFIED' : 'SETUP REQUIRED'}</span><button className="search-trigger" onClick={() => setModal('search')}><Search size={15}/><span>Find anything</span><kbd>⌘ K</kbd></button><button className="icon-button" aria-label="Refresh workspace" onClick={() => { load(); notify('Workspace refreshed.'); }}><RefreshCw size={16}/></button></div></header>
    <main>
-    {error ? <div className="error-state"><Shield size={42}/><h1>The ledger is taking a moment.</h1><p>{error}</p><button className="button primary" onClick={load}><RefreshCw size={15}/>Reconnect</button></div> : !data ? <div className="loading-state"><Brand /><div className="loading-track"/><p>Opening your ledger…</p></div> : <>
+    {error ? localBrowser && localAuthRequired ? <LocalSandboxUnlock token={localTokenInput} setToken={setLocalTokenInput} onUnlock={unlockLocalSandbox} busy={busy} detail={error}/> : <div className="error-state"><Shield size={42}/><h1>The ledger is taking a moment.</h1><p>{error}</p><button className="button primary" onClick={load}><RefreshCw size={15}/>Reconnect</button></div> : !data ? <div className="loading-state"><Brand /><div className="loading-track"/><p>Opening your ledger…</p></div> : <>
+     {localBrowser && (data.identity.local ? <LocalSandboxUnlock token={localTokenInput} setToken={setLocalTokenInput} onUnlock={unlockLocalSandbox} busy={busy}/> : <div className="local-sandbox-unlocked"><span><LockKeyhole size={14}/>Your local sandbox is unlocked for this tab. Reloading removes the access token.</span><button className="text-button" onClick={lockLocalSandbox}>Lock local sandbox</button></div>)}
      {(view === 'overview' || view === 'inbox') && <>
-      <div className="page-heading"><div><div className="eyebrow">{view === 'overview' ? new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }).format(new Date()).toUpperCase() : 'YOUR BACK OFFICE, IN MOTION'}</div><h1>{view === 'overview' ? <>Your money agent.<br className="mobile-break"/> Grounded in <em>real records.</em></> : 'Every request earns its authority.'}</h1><p>{view === 'overview' ? 'Connect your sandbox, verify your records, and inspect every provider response.' : 'Every message is a request. Every payment needs a reason.'}</p></div><button className="button primary" onClick={() => { setModal('compose'); setSubject(''); setText(''); }}><Plus size={16}/>New message</button></div>
+      <div className="page-heading"><div><div className="eyebrow">{view === 'overview' ? new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }).format(new Date()).toUpperCase() : 'YOUR BACK OFFICE, IN MOTION'}</div><h1>{view === 'overview' ? <>Your money agent.<br className="mobile-break"/> Grounded in <em>real records.</em></> : 'Every request earns its authority.'}</h1><p>{view === 'overview' ? 'Connect your sandbox, verify your records, and inspect every provider response.' : 'Every message is a request. Every payment needs a reason.'}</p></div><button className="button primary" onClick={openCompose}><Plus size={16}/>New message</button></div>
       {view === 'overview' && <>{!ready && <section className="onboarding-banner"><div><span className="eyebrow">CONNECTIONS REQUIRED</span><h2>Your workspace is waiting for real connections.</h2><p>No fictional transactions are loaded. Set up PayPal sandbox and the model before processing a request.</p></div><button className="button primary" onClick={() => navigate('connections')}>Finish setup<ArrowRight size={15}/></button></section>}<div className="hero-banner"><div className="hero-copy"><div className="hero-tag"><ShieldCheck size={13}/>BUILT TO QUESTION. TRUSTED TO ACT.</div><h2>An inbox full of possibilities.<br />A firewall around your money.</h2><p>Let the agent read everything. Let the rules decide what moves.</p><button className="hero-cta" onClick={() => openPipeline(signatureCase)}><span><Play size={10} fill="currentColor"/></span>Open the animated pipeline<ArrowUpRight size={14}/></button></div><VaultIllustration /><div className="hero-footnote"><span className="online-dot"/> Deterministic by design</div></div>
        <div className="stats-row"><Stat label="VALUE IN REVIEWED REQUESTS" value={money(data.stats.protectedCents)} note="Request value, not a wallet balance" icon={<ShieldCheck size={17}/>} green/><Stat label="MESSAGES PROCESSED" value={String(data.stats.processed).padStart(2, '0')} note="Every decision has a paper trail" icon={<CheckCheck size={17}/>}/><Stat label="WAITING FOR YOUR SAY" value={String(data.stats.held).padStart(2, '0')} note={data.stats.held ? 'A human touch, where it matters' : 'Nothing needs your attention'} icon={<Fingerprint size={17}/>} violet/><Stat label="PROVIDER REFERENCES" value={String(all.filter(d=>d.rail?.reference).length).padStart(2, '0')} note="Actual references saved from PayPal" icon={<FileCheck2 size={17}/>}/></div></>}
       <div className="section-heading"><div><h2>{view === 'overview' ? 'The working inbox' : 'All messages'}<span className="count-pill">{all.length}</span></h2><p>Open a message. Follow the money.</p></div><span className="subtle-live"><span className="online-dot"/>{data.policies.filter(p=>p.enabled).length} playbooks enabled</span></div>
       <div className="workbench"><section className="inbox-panel"><div className="inbox-toolbar"><div className="filter-tabs">{[['all', 'All messages'], ['review', 'Review'], ['resolved', 'Resolved']].map(([id, label]) => <button className={filter === id ? 'selected' : ''} key={id} onClick={() => setFilter(id)}>{label}{id === 'review' && data.stats.held > 0 && <span>{data.stats.held}</span>}</button>)}</div><button className="icon-button" aria-label="Search messages" onClick={() => setModal('search')}><Search size={15}/></button></div><div className="message-list">{filtered.length ? filtered.map((d, i) => <button key={d.id} className={'message ' + (active?.id === d.id ? 'selected' : '')} onClick={() => { setSelected(d.id); setLensTab('pipeline'); setReplay(x => x + 1); }}><div className="message-top"><Avatar name={d.counterparty} index={i}/><strong>{d.counterparty || 'Incoming message'}</strong><span className="message-time">{new Date(d.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span></div><div className="message-subject">{d.subject}</div><p>{d.text.replace(/\s+/g, ' ').slice(0, 92)}</p><div className="message-bottom"><Badge status={d.status}/><span className="message-amount">{money(d.amountCents, d.currency)}</span></div></button>) : <div className="empty-state"><Inbox size={28}/><h3>{all.length ? 'No matching requests.' : 'Your inbox starts empty.'}</h3><p>{all.length ? 'Change the filter to see other records.' : 'Paste a real message after configuring your connections.'}</p><button className="text-button" onClick={() => setFilter('all')}>See all messages <ArrowRight size={14}/></button></div>}</div><div className="inbox-footer"><LockKeyhole size={12}/><span>Content is input. Never authority.</span></div></section>
-       <section className="lens-panel">{active ? <><div className="lens-toolbar"><button className="text-button expand-pipeline" onClick={()=>openPipeline(active)}><Fingerprint size={16}/>Open animation<ArrowUpRight size={13}/></button><div className="lens-tabs">{[['pipeline', 'Pipeline lens'], ['message', 'Message'], ['receipt', 'Receipt']].map(([id, label]) => <button className={lensTab === id ? 'selected' : ''} key={id} onClick={() => setLensTab(id)}>{label}</button>)}</div></div><div className="lens-content"><div className="decision-heading"><div><div className="eyebrow">{active.kind?.replaceAll('_', ' ')} · PAYPAL SANDBOX</div><h3>{active.subject}</h3></div><div className="decision-amount">{money(active.amountCents, active.currency)}</div></div>{lensTab === 'pipeline' ? <Pipeline decision={active} replay={replay} onReplay={() => setReplay(x => x + 1)}/> : lensTab === 'message' ? <div className="raw-message"><div className="source-note"><Mail size={15}/>Untrusted message · rendered as plain text</div><pre>{active.text}</pre></div> : <div className="receipt-view"><div className="receipt-top"><span className="receipt-seal"><ShieldCheck size={24}/></span><div><h3>A decision you can account for.</h3><p>Export this record to inspect the inputs, policy and execution.</p></div></div><dl><dt>Decision</dt><dd>{active.id}</dd><dt>Environment</dt><dd>PayPal sandbox</dd><dt>Rail reference</dt><dd>{active.rail?.reference || 'No money-moving call'}</dd><dt>Outcome</dt><dd>{statusLabel(active.status)}</dd></dl><button className="button secondary" onClick={() => exportReceipt(active)}><Download size={14}/>Export receipt JSON</button><details><summary>Inspect full record</summary><pre>{JSON.stringify(active, null, 2)}</pre></details></div>}
+       <section className="lens-panel">{active ? <><div className="lens-toolbar"><button className="text-button expand-pipeline" onClick={()=>openPipeline(active)}><Fingerprint size={16}/>Open animation<ArrowUpRight size={13}/></button><div className="lens-tabs">{[['pipeline', 'Pipeline lens'], ['message', 'Message'], ['receipt', 'Receipt']].map(([id, label]) => <button className={lensTab === id ? 'selected' : ''} key={id} onClick={() => setLensTab(id)}>{label}</button>)}</div></div><div className="lens-content"><div className="decision-heading"><div><div className="eyebrow">{active.kind?.replaceAll('_', ' ')} · PAYPAL SANDBOX</div><h3>{active.subject}</h3></div><div className="decision-amount">{money(active.amountCents, active.currency)}</div></div><TaskAuthority decision={active}/>{lensTab === 'pipeline' ? <Pipeline decision={active} replay={replay} onReplay={() => setReplay(x => x + 1)}/> : lensTab === 'message' ? <div className="raw-message"><div className="source-note"><Mail size={15}/>Untrusted message · rendered as plain text</div><pre>{active.text}</pre></div> : <div className="receipt-view"><div className="receipt-top"><span className="receipt-seal"><ShieldCheck size={24}/></span><div><h3>A decision you can account for.</h3><p>Export this record to inspect the inputs, policy and execution.</p></div></div><dl><dt>Decision</dt><dd>{active.id}</dd><dt>Environment</dt><dd>PayPal sandbox</dd><dt>Rail reference</dt><dd>{active.rail?.reference || 'No money-moving call'}</dd><dt>Outcome</dt><dd>{statusLabel(active.status)}</dd></dl><div className="receipt-actions"><button className="button secondary" onClick={() => exportReceipt(active)}><Download size={14}/>Export decision JSON</button><button className="button secondary" disabled={busy} onClick={exportChain}><Download size={14}/>Export full chain</button></div><p className="receipt-scope">The decision export is a snapshot. The full chain includes linked decision and execution events for an offline integrity check.</p><details><summary>Inspect full record</summary><pre>{JSON.stringify(active, null, 2)}</pre></details></div>}
         {['pending','failed'].includes(active.status) && <div className="approval-card"><div><RefreshCw size={18}/><span><strong>Check the current provider status.</strong><small>{active.rail?.reference ? 'This fetches the stored PayPal reference and cannot resubmit the action.' : 'No provider reference was returned. Check the PayPal dashboard using the receipt request ID; this action stays reserved.'}</small></span></div><button className="button secondary small" disabled={busy || !active.rail?.reference || !data.capabilities.sandboxConfigured || !data.capabilities.sellerConfigured} onClick={()=>reconcile(active.id)}><RefreshCw size={13}/>Refresh PayPal status</button></div>}{['held', 'blocked'].includes(active.status) && <div className="approval-card"><div><Fingerprint size={19}/><span><strong>This one needs a closer look.</strong><small>{canApprove(active) ? 'One-time amount exception: ' + money(active.amountCents, active.currency) + ' to ' + String(active.provenance?.find(f => f.authoritative)?.value || active.counterparty) : 'Resolve the trusted record or policy issue before execution.'}</small></span></div><div><button className="button secondary small" disabled={busy} onClick={() => approval('reject')}>Reject</button>{canApprove(active) ? <button className="button primary small" disabled={busy || !ready} onClick={() => approval('approve')}><Check size={13}/>Approve once</button> : <button className="button primary small" onClick={() => navigate('vendors')}>Review trusted records</button>}</div></div>}</div><div className="lens-footer"><span><ShieldCheck size={12}/>{data.chain.verified ? 'Receipt chain verified' : 'Receipt chain needs review'}</span><span className="mono">{short(data.chain.head || 'GENESIS', 14)}</span></div></> : <div className="empty-state"><Fingerprint size={36}/><h3>Follow every decision.</h3><p>Select a message to open the Pipeline Lens.</p></div>}</section></div>
       <div className="workspace-caption"><span><LockKeyhole size={12}/>A small, deterministic kernel stands between your inbox and your money.</span><button className="text-button" onClick={() => navigate('playbooks')}>Meet your rules <ArrowRight size={13}/></button></div>
      </>}
@@ -222,8 +294,8 @@ export default function Custody() {
      {view==='pipeline'&&<>
       <div className="page-heading pipeline-page-heading"><div><div className="eyebrow">THE PIPELINE LENS · FOLLOW THE AUTHORITY</div><h1>Words stop. <em>Authority passes.</em></h1><p>Violet fields came from the message. Green fields came from trusted records. Watch what crosses the kernel.</p></div><button className="button secondary" onClick={()=>navigate('connections')}><Settings2 size={14}/>Connection status</button></div>
       <div className="pipeline-casebar"><label htmlFor="pipeline-case">REPLAY A RECORDED DECISION</label><select disabled={!all.length} id="pipeline-case" value={pipelineDecision?.id||''} onChange={event=>setSelected(event.target.value)}>{all.length>0&&<optgroup label="Inbox decisions">{all.map(d=><option key={d.id} value={d.id}>{d.counterparty} · {money(d.amountCents,d.currency)} · {statusLabel(d.status)}</option>)}</optgroup>}{!all.length&&<option value="">No recorded decisions yet</option>}</select>{pipelineDecision&&<Badge status={pipelineDecision.status}/>}<button disabled={!pipelineDecision} className="button primary pipeline-replay-trigger" onClick={()=>setReplay(value=>value+1)}><Play size={14}/>Replay animation</button></div>
-      {pipelineDecision?<PipelineStage key={pipelineDecision.id+'-'+replay} decision={pipelineDecision} onSelectMessage={()=>{setFilter('all');setLensTab('message');navigate('inbox')}}/>:<div className="empty-state"><Fingerprint size={36}/><h3>A decision becomes a story.</h3><p>Process a message to trace it through the kernel.</p><button className="button primary" onClick={()=>{setModal('compose');setSubject('');setText('')}}>New message</button></div>}
-      <div className="pipeline-next"><div className="pipeline-next-intro"><div className="eyebrow">THE NEXT VERIFIED STEP</div><h2>From a visible boundary<br/>to a recorded <em>result.</em></h2><p>The animation replays a stored decision. It never runs a payment. Provider status and references are shown exactly as recorded.</p></div><div className="pipeline-next-list"><button onClick={()=>navigate('connections')}><span>01</span><div><strong>Verify PayPal & your model</strong><small>Use actual provider responses to check your server connections.</small></div><ArrowUpRight size={17}/></button><button onClick={()=>navigate('vendors')}><span>02</span><div><strong>Establish trusted destinations</strong><small>Add your own sandbox vendors and independently verify their addresses.</small></div><ArrowUpRight size={17}/></button><button onClick={()=>{setSubject('');setText('');setModal('compose')}}><span>03</span><div><strong>Process your message</strong><small>The model extracts fields. The kernel checks authority before any sandbox call.</small></div><ArrowUpRight size={17}/></button></div></div>
+      {pipelineDecision?<><TaskAuthority decision={pipelineDecision}/><PipelineStage key={pipelineDecision.id+'-'+replay} decision={pipelineDecision} onSelectMessage={()=>{setFilter('all');setLensTab('message');navigate('inbox')}}/></>:<div className="empty-state"><Fingerprint size={36}/><h3>A decision becomes a story.</h3><p>Process a message to trace it through the kernel.</p><button className="button primary" onClick={openCompose}>New message</button></div>}
+      <div className="pipeline-next"><div className="pipeline-next-intro"><div className="eyebrow">THE NEXT VERIFIED STEP</div><h2>From a visible boundary<br/>to a recorded <em>result.</em></h2><p>The animation replays a stored decision. It never runs a payment. Provider status and references are shown exactly as recorded.</p></div><div className="pipeline-next-list"><button onClick={()=>navigate('connections')}><span>01</span><div><strong>Verify PayPal & your model</strong><small>Use actual provider responses to check your server connections.</small></div><ArrowUpRight size={17}/></button><button onClick={()=>navigate('vendors')}><span>02</span><div><strong>Establish trusted destinations</strong><small>Add your own sandbox vendors and independently verify their addresses.</small></div><ArrowUpRight size={17}/></button><button onClick={openCompose}><span>03</span><div><strong>Process your message</strong><small>The model extracts fields. The kernel checks authority before any sandbox call.</small></div><ArrowUpRight size={17}/></button></div></div>
      </>}
      {view === 'arena' && <><div className="page-heading"><div><div className="eyebrow">ARENA STATUS</div><h1>Verification comes<br /><em>before the challenge.</em></h1><p>The previous simulated arena has been disabled. No fictional balances or attack outcomes are displayed.</p></div></div><section className="setup-panel arena-unavailable"><LockKeyhole size={38}/><h2>Isolated sandbox arena is not connected.</h2><p>A real attack arena needs its own sandbox account, verified baseline records, and transaction limits. The server refuses arena execution until that isolated flow is implemented and verified.</p><button className="button secondary" onClick={()=>navigate('connections')}>Review current connections<ArrowRight size={15}/></button></section></>}
      {view === 'connections' && <SandboxWorkspace data={data} setData={setData} notify={notify}/>}
@@ -240,8 +312,36 @@ export default function Custody() {
     </>}
    </main>
   </div>
-  {modal && <div className="modal-scrim" onClick={() => setModal(null)}><section ref={dialog} tabIndex={-1} className={'modal ' + (modal === 'search' ? 'search-modal' : '')} role="dialog" aria-modal="true" aria-label={modal === 'vendor' ? 'Verify vendor' : modal === 'policy' ? 'Edit playbook' : modal === 'compose' ? 'New message' : modal === 'search' ? 'Search workspace' : modal === 'connection' ? 'Environment settings' : 'How Custody works'} onClick={e => e.stopPropagation()}><button className="icon-button modal-close" aria-label="Close dialog" onClick={() => setModal(null)}><X size={19}/></button>
-   {modal === 'vendor' ? <><span className="modal-emblem"><Users size={24}/></span><div className="eyebrow">YOU ARE THE SOURCE OF AUTHORITY</div><h2>Put it in the book.</h2><p>Independently verify this PayPal destination with the vendor. This explicit action creates a trusted record; an inbox message never can.</p><label className="field-label" htmlFor="vendor-name">VENDOR NAME</label><input id="vendor-name" maxLength={80} value={vendorDraft.name} onChange={e => setVendorDraft(d => ({ ...d, name: e.target.value }))}/><label className="field-label" htmlFor="vendor-email">VERIFIED PAYPAL EMAIL</label><input id="vendor-email" type="email" maxLength={254} value={vendorDraft.email} onChange={e => setVendorDraft(d => ({ ...d, email: e.target.value }))}/><div className="form-row"><div><label className="field-label" htmlFor="vendor-limit">ALLOWANCE · USD</label><input id="vendor-limit" type="number" min="0.01" max="10000" step="0.01" value={vendorDraft.limit} onChange={e => setVendorDraft(d => ({ ...d, limit: e.target.value }))}/></div><div><label className="field-label" htmlFor="vendor-aliases">ALIASES · COMMA SEPARATED</label><input id="vendor-aliases" value={vendorDraft.aliases} onChange={e => setVendorDraft(d => ({ ...d, aliases: e.target.value }))}/></div></div><label className="verify-checkbox"><input type="checkbox" checked={vendorDraft.verified} onChange={e => setVendorDraft(d => ({ ...d, verified: e.target.checked }))}/><span>I independently verified this destination and authorize it for future payments.</span></label><div className="modal-actions"><button className="text-button" onClick={() => setModal(null)}>Cancel</button><button className="button primary" disabled={busy || !!data?.identity.local || !vendorDraft.verified || !vendorDraft.name || !vendorDraft.email} onClick={saveVendor}><ShieldCheck size={14}/>Verify & save</button></div></> : modal === 'policy' && editPolicy ? <><span className="modal-emblem"><FileCheck2 size={24}/></span><div className="eyebrow">EXPLICIT STANDING AUTHORITY</div><h2>{editPolicy.name || 'Edit playbook'}</h2><p>Changes apply to future evaluations. Existing held decisions still require an explicit review.</p><label className="field-label" htmlFor="policy-cap">MAXIMUM PER ACTION · USD</label><input id="policy-cap" type="number" min="0.01" max="10000" step="0.01" value={cap} onChange={e => setCap(e.target.value)}/>{editPolicy.kind === 'refund' && <><label className="field-label" htmlFor="policy-days">REFUND WINDOW · DAYS</label><input id="policy-days" type="number" min="1" max="180" step="1" value={refundDays} onChange={e => setRefundDays(e.target.value)}/></>}<div className="technical-note"><LockKeyhole size={16}/><p>A higher cap never authorizes a new payee, an over-refund, or a duplicate. Provenance requirements always apply.</p></div><div className="modal-actions"><button className="text-button" onClick={() => setModal(null)}>Cancel</button><button className="button primary" disabled={!!data?.identity.local || savingPolicy === editPolicy.id || !Number.isSafeInteger(Number(cap) * 100) || Number(cap) <= 0} onClick={() => savePolicy({ ...editPolicy, maxAmountCents: Number(cap) * 100, ...(editPolicy.kind === 'refund' ? { refundWindowDays: Number(refundDays) } : {}) }, editPolicy.enabled !== false)}><Check size={14}/>Save rule</button></div></> : modal === 'compose' ? <><div className="eyebrow">A NEW REQUEST, A NEW PAPER TRAIL</div><h2>Drop it in the inbox.</h2><p>Paste a real invoice, refund request, or client invoice instruction. Only enabled playbooks and trusted records can authorize a sandbox action.</p><label className="field-label" htmlFor="compose-subject">SUBJECT</label><input autoFocus id="compose-subject" value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject from your actual message" maxLength={180}/><label className="field-label" htmlFor="compose-text">MESSAGE</label><textarea id="compose-text" value={text} onChange={e => setText(e.target.value)} placeholder="Paste the message, including vendor, invoice number and amount…" rows={8} maxLength={6000}/><div className="modal-actions"><span className="compose-readiness">{ready ? 'This may execute an authorized sandbox action.' : 'Connect and verify your providers first.'}</span><button className="button primary" disabled={busy || !ready || text.trim().length < 3} onClick={() => process()}>{busy ? <RefreshCw size={15} className="spin"/> : <Send size={15}/>}Process message</button></div></> : modal === 'search' ? <><div className="search-box"><Search size={20}/><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search messages, vendors, decisions…" aria-label="Search workspace"/><kbd>ESC</kbd></div><div className="search-results">{all.filter(d => `${d.subject} ${d.counterparty} ${d.status}`.toLowerCase().includes(query.toLowerCase())).map(d => <button key={d.id} onClick={() => { setSelected(d.id); setView('inbox'); setModal(null); setQuery(''); setFilter('all'); }}><Mail size={17}/><span><strong>{d.subject}</strong><small>{d.counterparty} · {money(d.amountCents, d.currency)}</small></span><Badge status={d.status}/></button>)}</div></> : modal === 'connection' ? <><span className="modal-emblem"><Settings2 size={24}/></span><div className="eyebrow">ACTUAL CONNECTION STATE</div><h2>{data?.readiness?.ready ? 'Connections verified.' : 'Setup required.'}</h2><p>No simulated fallback runs when a provider is missing or returns an error.</p>{data&&<Readiness data={data} compact/>}<div className="owner-identity"><span>Authenticated owner ID</span><code>{data?.identity.id}</code></div><button className="button primary" onClick={()=>{setModal(null);navigate('connections')}}>Open connections & checkout<ArrowRight size={14}/></button></> : <><span className="modal-emblem"><ShieldCheck size={26}/></span><div className="eyebrow">THE CUSTODY PRINCIPLE</div><h2>Intelligence reads.<br /><em>Provenance decides.</em></h2><p>Emails, PDFs and product pages are untrusted. Even a perfectly successful prompt injection cannot grant them payment authority.</p><div className="how-steps">{[['Read', 'A quarantined extractor proposes fields. Every extracted field is tainted.'], ['Resolve', 'The vendor book and payment records provide canonical destinations.'], ['Decide', 'A deterministic kernel checks provenance, caps, timing and duplicates.'], ['Record', 'Every outcome gets a tamper-evident receipt. Unresolved requests reach you.']].map(([title, body], i) => <div key={title}><span>0{i + 1}</span><p><strong>{title}</strong>{body}</p></div>)}</div><p className="small-print">The guarantee is narrow: untrusted text cannot supply an execution destination. The vendor book, owner account and server must remain trustworthy. A policy approval does not prove settlement. Verify the provider’s final transaction status.</p></>}
+  {modal && <div className="modal-scrim" onClick={() => setModal(null)}><section ref={dialog} tabIndex={-1} className={'modal ' + (modal === 'search' ? 'search-modal' : modal === 'compose' ? 'compose-modal' : '')} role="dialog" aria-modal="true" aria-label={modal === 'vendor' ? 'Verify vendor' : modal === 'policy' ? 'Edit playbook' : modal === 'compose' ? 'New message' : modal === 'search' ? 'Search workspace' : modal === 'connection' ? 'Environment settings' : 'How Custody works'} onClick={e => e.stopPropagation()}><button className="icon-button modal-close" aria-label="Close dialog" onClick={() => setModal(null)}><X size={19}/></button>
+   {modal === 'vendor' ? <><span className="modal-emblem"><Users size={24}/></span><div className="eyebrow">YOU ARE THE SOURCE OF AUTHORITY</div><h2>Put it in the book.</h2><p>Independently verify this PayPal destination with the vendor. This explicit action creates a trusted record; an inbox message never can.</p><label className="field-label" htmlFor="vendor-name">VENDOR NAME</label><input id="vendor-name" maxLength={80} value={vendorDraft.name} onChange={e => setVendorDraft(d => ({ ...d, name: e.target.value }))}/><label className="field-label" htmlFor="vendor-email">VERIFIED PAYPAL EMAIL</label><input id="vendor-email" type="email" maxLength={254} value={vendorDraft.email} onChange={e => setVendorDraft(d => ({ ...d, email: e.target.value }))}/><div className="form-row"><div><label className="field-label" htmlFor="vendor-limit">ALLOWANCE · USD</label><input id="vendor-limit" type="number" min="0.01" max="10000" step="0.01" value={vendorDraft.limit} onChange={e => setVendorDraft(d => ({ ...d, limit: e.target.value }))}/></div><div><label className="field-label" htmlFor="vendor-aliases">ALIASES · COMMA SEPARATED</label><input id="vendor-aliases" value={vendorDraft.aliases} onChange={e => setVendorDraft(d => ({ ...d, aliases: e.target.value }))}/></div></div><label className="verify-checkbox"><input type="checkbox" checked={vendorDraft.verified} onChange={e => setVendorDraft(d => ({ ...d, verified: e.target.checked }))}/><span>I independently verified this destination and authorize it for future payments.</span></label><div className="modal-actions"><button className="text-button" onClick={() => setModal(null)}>Cancel</button><button className="button primary" disabled={busy || !!data?.identity.local || !vendorDraft.verified || !vendorDraft.name || !vendorDraft.email} onClick={saveVendor}><ShieldCheck size={14}/>Verify & save</button></div></> : modal === 'policy' && editPolicy ? <><span className="modal-emblem"><FileCheck2 size={24}/></span><div className="eyebrow">EXPLICIT STANDING AUTHORITY</div><h2>{editPolicy.name || 'Edit playbook'}</h2><p>Changes apply to future evaluations. Existing held decisions still require an explicit review.</p><label className="field-label" htmlFor="policy-cap">MAXIMUM PER ACTION · USD</label><input id="policy-cap" type="number" min="0.01" max="10000" step="0.01" value={cap} onChange={e => setCap(e.target.value)}/>{editPolicy.kind === 'refund' && <><label className="field-label" htmlFor="policy-days">REFUND WINDOW · DAYS</label><input id="policy-days" type="number" min="1" max="180" step="1" value={refundDays} onChange={e => setRefundDays(e.target.value)}/></>}<div className="technical-note"><LockKeyhole size={16}/><p>A higher cap never authorizes a new payee, an over-refund, or a duplicate. Provenance requirements always apply.</p></div><div className="modal-actions"><button className="text-button" onClick={() => setModal(null)}>Cancel</button><button className="button primary" disabled={!!data?.identity.local || savingPolicy === editPolicy.id || !Number.isSafeInteger(Number(cap) * 100) || Number(cap) <= 0} onClick={() => savePolicy({ ...editPolicy, maxAmountCents: Number(cap) * 100, ...(editPolicy.kind === 'refund' ? { refundWindowDays: Number(refundDays) } : {}) }, editPolicy.enabled !== false)}><Check size={14}/>Save rule</button></div></> : modal === 'compose' ? <>
+    <div className="eyebrow">A REQUEST WITH A DEFINED BOUNDARY</div>
+    <h2>Choose the task.<br/><em>Then read the request.</em></h2>
+    <p>Select the trusted record and maximum you authorize. The model must stay within this task and your standing playbook.</p>
+    <fieldset className="task-authorization-fields" disabled={busy}>
+      <legend><ShieldCheck size={14}/>YOUR AUTHORITY · OUTSIDE THE MESSAGE</legend>
+      <label className="field-label" htmlFor="compose-task-kind">AUTHORIZED PLAYBOOK</label>
+      <select id="compose-task-kind" value={taskKind} onChange={event => { setTaskKind(event.target.value as PaymentKind); setTaskTarget(''); setTaskConfirmed(false); }}>
+        {(Object.entries(taskLabels) as Array<[PaymentKind, string]>).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
+      </select>
+      <label className="field-label" htmlFor="compose-task-target">TRUSTED RECORD FOR THIS TASK</label>
+      <select id="compose-task-target" value={taskTarget} onChange={event => { setTaskTarget(event.target.value); setTaskConfirmed(false); }} disabled={!taskTargets.length} aria-describedby="compose-task-record-help">
+        <option value="">{taskTargets.length ? 'Choose a record you independently verified' : 'No trusted records for this playbook'}</option>
+        {taskTargets.map(target => <option key={target.id} value={target.id}>{target.label}</option>)}
+      </select>
+      <div className="task-record-detail" id="compose-task-record-help" aria-live="polite">
+        {selectedTaskTarget ? <><span>{selectedTaskTarget.detail}</span>{selectedTaskTarget.exhausted && <strong>No refundable balance remains. The kernel will withhold another refund.</strong>}</> : <span>Only your imported payment records and verified counterparties appear here. Message text cannot create a trusted record.</span>}
+      </div>
+      <label className="field-label" htmlFor="compose-task-maximum">MAXIMUM AUTHORIZED FOR THIS TASK · USD</label>
+      <input id="compose-task-maximum" type="text" inputMode="decimal" maxLength={12} value={taskMaximum} onChange={event => { setTaskMaximum(event.target.value); setTaskConfirmed(false); }} placeholder="0.00" aria-describedby="compose-task-limit-help" aria-invalid={!!taskMaximum && taskMaximumCents === null}/>
+      <p className="task-limit-help" id="compose-task-limit-help">{taskPolicy ? <>Standing playbook cap: {money(taskPolicy.maxAmountCents)} · {taskPolicy.enabled ? 'active' : 'paused'}. A task never raises that cap or enables a paused playbook.</> : 'The standing playbook must also authorize the action.'} {taskMaximum && taskMaximumCents === null && <strong>Enter a positive USD amount up to $10,000 with at most two decimal places.</strong>}</p>
+    </fieldset>
+    <label className="field-label" htmlFor="compose-subject">MESSAGE SUBJECT · UNTRUSTED INPUT</label>
+    <input id="compose-subject" disabled={busy} value={subject} onChange={event => { setSubject(event.target.value); setTaskConfirmed(false); }} placeholder="Subject from your actual message" maxLength={180}/>
+    <label className="field-label" htmlFor="compose-text">MESSAGE · UNTRUSTED INPUT</label>
+    <textarea id="compose-text" disabled={busy} value={text} onChange={event => { setText(event.target.value); setTaskConfirmed(false); }} placeholder="Paste the original request. Its claims cannot change the selected task, destination or maximum." rows={6} maxLength={6000}/>
+    <label className="verify-checkbox task-confirmation"><input type="checkbox" checked={taskConfirmed} onChange={event => setTaskConfirmed(event.target.checked)} disabled={busy || !selectedTaskTarget || taskMaximumCents === null || text.trim().length < 3}/><span>I independently verified this request and authorize only the selected {taskLabels[taskKind].toLowerCase()} task, up to {taskMaximumCents === null ? 'the amount entered above' : money(taskMaximumCents)}. The message cannot choose a different record.</span></label>
+    <div className="modal-actions"><span className="compose-readiness">{ready ? 'Processing may execute this bounded sandbox task if every check passes.' : 'Connect and verify your providers first.'}</span><button className="button primary" disabled={busy || !ready || !taskReady || text.trim().length < 3} onClick={() => process()}>{busy ? <RefreshCw size={15} className="spin"/> : <Send size={15}/>}Process authorized task</button></div>
+   </> : modal === 'search' ? <><div className="search-box"><Search size={20}/><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search messages, vendors, decisions…" aria-label="Search workspace"/><kbd>ESC</kbd></div><div className="search-results">{all.filter(d => `${d.subject} ${d.counterparty} ${d.status}`.toLowerCase().includes(query.toLowerCase())).map(d => <button key={d.id} onClick={() => { setSelected(d.id); setView('inbox'); setModal(null); setQuery(''); setFilter('all'); }}><Mail size={17}/><span><strong>{d.subject}</strong><small>{d.counterparty} · {money(d.amountCents, d.currency)}</small></span><Badge status={d.status}/></button>)}</div></> : modal === 'connection' ? <><span className="modal-emblem"><Settings2 size={24}/></span><div className="eyebrow">ACTUAL CONNECTION STATE</div><h2>{data?.readiness?.ready ? 'Connections verified.' : 'Setup required.'}</h2><p>No simulated fallback runs when a provider is missing or returns an error.</p>{data&&<Readiness data={data} compact/>}<div className="owner-identity"><span>Authenticated owner ID</span><code>{data?.identity.id}</code></div><button className="button primary" onClick={()=>{setModal(null);navigate('connections')}}>Open connections & checkout<ArrowRight size={14}/></button></> : <><span className="modal-emblem"><ShieldCheck size={26}/></span><div className="eyebrow">THE CUSTODY PRINCIPLE</div><h2>Intelligence reads.<br /><em>Provenance decides.</em></h2><p>Message text and model output are untrusted. An authenticated owner selects a specific trusted record and maximum before extraction. The kernel checks that task boundary before a sandbox action.</p><div className="how-steps">{[['Authorize', 'You independently verify the request, then select its playbook, trusted record and maximum outside the message.'], ['Read & resolve', 'A real model extracts tainted claims. Trusted books and PayPal records supply canonical destinations.'], ['Decide', 'The kernel checks the owner task, provenance, policy, caps, timing, duplicates and refund balance.'], ['Record', 'Actual provider responses and held requests remain visible. Export the linked receipt chain to inspect the history.']].map(([title, body], i) => <div key={title}><span>0{i + 1}</span><p><strong>{title}</strong>{body}</p></div>)}</div><p className="small-print">The boundary is specific: model claims cannot change an owner-authorized task, supply a new execution destination, or bypass the checked policy and refund limits. The owner must verify the request’s legitimacy; message authors are not independently authenticated. Trusted records, the owner account and server must remain trustworthy. A receipt hash is not an independently anchored accounting guarantee. Verify the provider’s final status.</p></>}
   </section></div>}
   {toast && <div className="toast" role="status"><CircleHelp size={16}/>{toast}<button className="icon-button" aria-label="Dismiss notification" onClick={() => setToast('')}><X size={13}/></button></div>}
  </div>;
@@ -253,6 +353,26 @@ function Nav({ active, icon, text, count, onClick }: {
     count?: number;
     onClick: () => void;
 }) { return <button className={'nav-item ' + (active ? 'active' : '')} onClick={onClick}>{icon}<span>{text}</span>{count && <span className="nav-count">{count}</span>}</button>; }
+function LocalSandboxUnlock({ token, setToken, onUnlock, busy, detail }: { token: string; setToken: (value: string) => void; onUnlock: () => void; busy: boolean; detail?: string }) {
+    return <section className="local-sandbox-unlock" aria-labelledby="local-sandbox-unlock-title">
+        <div className="eyebrow">YOUR OWN ACCOUNTS · LOOPBACK ONLY</div>
+        <h2 id="local-sandbox-unlock-title">Unlock your local sandbox.</h2>
+        <p>Complete the judge setup in the README, then enter your generated local access token from the ignored env file. This unlocks your own configured sandbox accounts. The token stays in this tab’s memory and is removed on reload.</p>
+        {detail && <p className="local-unlock-feedback">{detail}</p>}
+        <form onSubmit={event => { event.preventDefault(); onUnlock(); }}>
+            <label className="field-label" htmlFor="local-sandbox-token">LOCAL SANDBOX TOKEN</label>
+            <div className="local-unlock-controls"><input id="local-sandbox-token" type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} value={token} onChange={event => setToken(event.target.value)} placeholder="Generated local access token"/><button className="button primary" type="submit" disabled={busy || !token.trim()}><LockKeyhole size={14}/>Unlock local sandbox</button></div>
+        </form>
+        <a className="text-button" href="/judge">Review the recorded evidence first<ArrowUpRight size={13}/></a>
+    </section>;
+}
+function TaskAuthority({ decision }: { decision: Decision }) {
+    const task = decision.ownerAuthorization;
+    return <section className={'task-authority ' + (task ? 'task-authority-bound' : 'task-authority-historical')} aria-label="Owner task authorization">
+        <div className="task-authority-heading"><ShieldCheck size={15}/><strong>{task ? 'Owner-authorized task' : 'Historical decision'}</strong><span>{task ? 'BOUND BEFORE EXTRACTION' : 'NO TASK BINDING RECORDED'}</span></div>
+        {task ? <><dl><div><dt>Playbook</dt><dd>{taskLabels[task.kind]}</dd></div><div><dt>Trusted record</dt><dd className="mono">{task.targetId}</dd></div><div><dt>Maximum</dt><dd>{money(task.maxAmountCents)}</dd></div></dl><p>Selected and confirmed by the authenticated owner at {new Date(task.at).toLocaleString('en-GB')}. Model claims cannot change this task.</p></> : <p>This record predates owner task binding. It can be inspected and replayed. Any new execution requires a new request with an explicitly selected task.</p>}
+    </section>;
+}
 function Stat({ label, value, note, icon, green, violet }: {
     label: string;
     value: string;

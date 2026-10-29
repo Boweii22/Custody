@@ -14,7 +14,10 @@
     "db:generate": "drizzle-kit generate",
     "test": "node --experimental-strip-types --test --test-isolation=none tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "setup": "node scripts/setup-custody.mjs"
+    "setup": "node scripts/setup-custody.mjs",
+    "setup:judge": "node scripts/setup-judge.mjs --enable-local-sandbox",
+    "build:judge": "vite build --config vite.judge.config.ts",
+    "evaluate:real": "node --experimental-strip-types evaluation/run-real.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

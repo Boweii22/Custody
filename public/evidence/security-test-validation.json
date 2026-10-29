@@ -1,0 +1,49 @@
+{
+  "validatedAt": "2026-10-29T06:13:49.748Z",
+  "artifact": "Custody-security-test-receipt.json",
+  "allChecksPassed": true,
+  "checks": {
+    "sandboxOnly": true,
+    "correctDecision": true,
+    "correctOrder": true,
+    "held": true,
+    "noExecution": true,
+    "onlyRemainingBalanceFailed": true,
+    "policyActive": true,
+    "sourceId": true,
+    "embeddedCreationReceiptHash": true
+  },
+  "passedKernelChecks": 12,
+  "failedKernelChecks": [
+    "refund_remaining"
+  ],
+  "providerReadAfterTest": {
+    "checkedAt": "2026-10-29T06:13:13.825Z",
+    "environment": "paypal-sandbox",
+    "httpStatus": 200,
+    "orderId": "5F683412PF382225E",
+    "status": "COMPLETED",
+    "captures": [
+      {
+        "id": "8HE37607J11395116",
+        "status": "REFUNDED",
+        "amount": {
+          "currency_code": "USD",
+          "value": "1.00"
+        }
+      }
+    ],
+    "refunds": [
+      {
+        "id": "0UJ640930F074291C",
+        "status": "COMPLETED",
+        "amount": {
+          "currency_code": "USD",
+          "value": "1.00"
+        }
+      }
+    ]
+  },
+  "providerStillHasOnlyOriginalRefund": true,
+  "integrityScope": "Embedded creation receipt and stored record consistency verified, not a complete ledger-chain export."
+}

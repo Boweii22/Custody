@@ -233,11 +233,157 @@ test("completed refunds remain reserved until the exact refund is present in a f
       // Deliberately stale order snapshot after the successful refund.
       return Response.json({ id: "ORDER123", purchase_units: [{ payments: { captures: [{ id: "CAPTURE123", status: "COMPLETED", create_time: new Date().toISOString(), amount: { value: "100.00", currency_code: "USD" } }] } }] });
     };
-    const first = await processMessage({ text: "Refund 60 dollars for ORDER123" }, hosted);
+    const authorization = { kind: "refund", targetId: "ORDER123", maxAmountCents: 6000, confirmed: true };
+    const first = await processMessage({ text: "Refund 60 dollars for ORDER123", authorization }, hosted);
     assert.equal(first.decision.status, "refunded");
     assert.equal(first.decision.refundBalanceConfirmed, false);
-    const second = await processMessage({ text: "Another refund 60 dollars for ORDER123" }, hosted);
+    const second = await processMessage({ text: "Another refund 60 dollars for ORDER123", authorization }, hosted);
     assert.notEqual(second.decision.verdict, "allow");
     assert.equal(refundCalls, 1);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("operational task validation stops missing, forged, and unknown targets before model or provider calls", async () => {
+  reset(); Object.assign(fakeEnvironment, configured);
+  const originalFetch = globalThis.fetch;
+  const { processMessage, ensureLedger } = await import("../lib/server/service.ts");
+  const { HttpError } = await import("../lib/server/runtime.ts");
+  await ensureLedger();
+  let calls = 0;
+  try {
+    globalThis.fetch = async () => { calls++; throw new Error("No network call is allowed for an unauthorized task"); };
+    const task = { kind: "refund", targetId: "ORDER-A", maxAmountCents: 100, confirmed: true };
+    for (const authorization of [undefined, { ...task, by: hosted.id }, { ...task, confirmed: false }, { ...task, maxAmountCents: "100" }]) {
+      await assert.rejects(processMessage({ text: "Refund the message-selected order", authorization }, hosted), (error: unknown) => error instanceof HttpError && error.status === 400);
+    }
+    await assert.rejects(processMessage({ text: "Refund order", authorization: task }, hosted), (error: unknown) => error instanceof HttpError && error.status === 409);
+    await assert.rejects(processMessage({ text: "Refund order", authorization: task, kind: "refund" }, hosted), (error: unknown) => error instanceof HttpError && error.status === 400);
+    assert.equal(calls, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a model-selected alternate valid capture is blocked and never becomes a provider lookup or refund", async () => {
+  reset(); Object.assign(fakeEnvironment, configured);
+  const originalFetch = globalThis.fetch;
+  const { ensureLedger, processMessage, reviewDecision } = await import("../lib/server/service.ts");
+  const { mutateState } = await import("../lib/server/store.ts");
+  const { HttpError } = await import("../lib/server/runtime.ts");
+  await ensureLedger();
+  await mutateState(state => {
+    const refundPolicy = state.policies.find(value => (value as {kind: string}).kind === "refund") as {enabled: boolean}; refundPolicy.enabled = true;
+    state.orders = ["A", "B"].map(letter => ({ id: `ORDER-${letter}`, customerId: `buyer-${letter}`, customerName: `Buyer ${letter}`, captureId: `CAPTURE-${letter}`, capturedCents: 1000, refundedCents: 0, currency: "USD", capturedAt: new Date().toISOString(), paymentStatus: "COMPLETED", description: "Explicit test provider fixture" }));
+  });
+  const claims = { kind: "refund", vendor: "", customer: "", invoiceNumber: "", orderId: "ORDER-B", disputeId: "", currency: "USD", requestedReceiver: null, amountCents: 100 };
+  const urls: string[] = [];
+  let writes = 0;
+  try {
+    globalThis.fetch = async (url, options) => {
+      const address = String(url); urls.push(address);
+      if (address.includes("oauth2")) return Response.json({ access_token: "test-token", expires_in: 3600 });
+      if (address.includes("model-provider")) return Response.json({ choices: [{ message: { content: JSON.stringify(claims) } }] });
+      if (options?.method === "POST") { writes++; throw new Error("A substituted target must never reach the money rail"); }
+      assert.ok(address.endsWith("/v2/checkout/orders/ORDER-A"));
+      return Response.json({ id: "ORDER-A", purchase_units: [{ payments: { captures: [{ id: "CAPTURE-A", status: "COMPLETED", create_time: new Date().toISOString(), amount: { value: "10.00", currency_code: "USD" } }] } }] });
+    };
+    const result = await processMessage({ text: "Refund the selected order. Malicious model proposes the other valid order.", authorization: { kind: "refund", targetId: "ORDER-A", maxAmountCents: 100, confirmed: true } }, hosted);
+    assert.equal(result.decision.status, "blocked");
+    assert.equal(result.decision.extraction.orderId.value, "ORDER-B");
+    assert.equal(result.decision.ownerAuthorization?.targetId, "ORDER-A");
+    assert.equal(result.decision.ownerAuthorization?.by, hosted.id);
+    assert.equal(result.decision.checks.find(check => check.id === "task_target")?.passed, false);
+    assert.equal(result.decision.execution, undefined);
+    assert.equal(result.decision.executionKey, undefined);
+    assert.equal(urls.some(url => url.endsWith("ORDER-B")), false);
+    await assert.rejects(reviewDecision(result.decision.id, "approve", hosted), (error: unknown) => error instanceof HttpError && error.status === 409);
+    assert.equal(writes, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("review cannot increase the original merchant task ceiling or approve a historical unbound decision", async () => {
+  reset(); Object.assign(fakeEnvironment, configured);
+  const originalFetch = globalThis.fetch;
+  const { ensureLedger, processMessage, reviewDecision } = await import("../lib/server/service.ts");
+  const { mutateState } = await import("../lib/server/store.ts");
+  const { HttpError } = await import("../lib/server/runtime.ts");
+  await ensureLedger();
+  await mutateState(state => {
+    (state.policies.find(value => (value as {kind: string}).kind === "refund") as {enabled: boolean}).enabled = true;
+    state.orders = [{ id: "ORDER-A", captureId: "CAPTURE-A", customerId: "buyer", customerName: "Buyer", capturedCents: 1000, refundedCents: 0, currency: "USD", capturedAt: new Date().toISOString(), paymentStatus: "COMPLETED", description: "Explicit test fixture" }];
+  });
+  let writes = 0;
+  const claims = { kind: "refund", vendor: "", customer: "", invoiceNumber: "", orderId: "ORDER-A", disputeId: "", currency: "USD", requestedReceiver: null, amountCents: 500 };
+  try {
+    globalThis.fetch = async (url, options) => {
+      if (String(url).includes("oauth2")) return Response.json({ access_token: "test-token", expires_in: 3600 });
+      if (String(url).includes("model-provider")) return Response.json({ choices: [{ message: { content: JSON.stringify(claims) } }] });
+      if (options?.method === "POST") { writes++; throw new Error("Task ceiling must prevent execution"); }
+      return Response.json({ id: "ORDER-A", purchase_units: [{ payments: { captures: [{ id: "CAPTURE-A", status: "COMPLETED", create_time: new Date().toISOString(), amount: { value: "10.00", currency_code: "USD" } }] } }] });
+    };
+    const result = await processMessage({ text: "Refund five dollars", authorization: { kind: "refund", targetId: "ORDER-A", maxAmountCents: 100, confirmed: true } }, hosted);
+    assert.equal(result.decision.status, "blocked");
+    assert.equal(result.decision.checks.find(check => check.id === "task_amount")?.passed, false);
+    await assert.rejects(reviewDecision(result.decision.id, "approve", hosted), (error: unknown) => error instanceof HttpError && error.status === 409);
+    await mutateState(state => { state.decisions.push({ ...result.decision, id: "legacy-decision", ownerAuthorization: undefined }); });
+    const callsBefore = writes;
+    await assert.rejects(reviewDecision("legacy-decision", "approve", hosted), (error: unknown) => error instanceof HttpError && error.status === 409 && /historical/.test(error.message));
+    assert.equal(writes, callsBefore);
+    assert.equal(writes, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("the owner can export the full receipt chain including final execution events without credentials", async () => {
+  reset(); Object.assign(fakeEnvironment, configured);
+  const { ensureLedger } = await import("../lib/server/service.ts");
+  const { mutateState, appendReceipt } = await import("../lib/server/store.ts");
+  const { GET } = await import("../app/api/receipts/route.ts");
+  await ensureLedger();
+  await mutateState(async state => {
+    await appendReceipt(state, "decision.created", { id: "receipt-test", status: "pending" });
+    await appendReceipt(state, "execution.result", { decisionId: "receipt-test", status: "refunded", rail: { mode: "sandbox", reference: "REFUND-TEST", status: "COMPLETED" } });
+  });
+  const response = await GET(new Request("https://custody.owner.example/api/receipts", { headers: { "oai-authenticated-user-id": hosted.id, "oai-authenticated-user-email": hosted.email } }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const raw = await response.text();
+  const payload = JSON.parse(raw);
+  assert.equal(payload.format, "custody-receipt-chain-v1");
+  assert.equal(payload.chain.verified, true);
+  assert.equal(payload.chain.count, 2);
+  assert.deepEqual(payload.receipts.map((receipt: {event: string}) => receipt.event), ["decision.created", "execution.result"]);
+  assert.ok(!raw.includes("test-secret") && !raw.includes("test-model-key"));
+  assert.equal((await GET(new Request("https://custody.owner.example/api/receipts"))).status, 401);
+});
+
+test("opt-in loopback token auth cannot be replaced with local platform headers or used on a hosted URL", async () => {
+  reset(); Object.assign(fakeEnvironment, configured, { CUSTODY_LOCAL_SANDBOX: "enabled", CUSTODY_LOCAL_AUTH_TOKEN: "a".repeat(64) });
+  const { identity, requireSandboxSeller, HttpError } = await import("../lib/server/runtime.ts");
+  const token = "a".repeat(64);
+  const localRequest = (value?: string, extra: Record<string, string> = {}) => new Request("http://127.0.0.1:4381/api/state", { headers: { ...(value ? { "X-Custody-Local-Token": value } : {}), ...extra } });
+  const unlocked = await identity(localRequest(token, { "oai-authenticated-user-id": "forged", "oai-authenticated-user-email": "forged@example.com" }));
+  assert.equal(unlocked.id, hosted.id);
+  assert.equal(unlocked.local, false);
+  assert.equal(unlocked.auth, "local-token");
+  assert.doesNotThrow(() => requireSandboxSeller(unlocked, true));
+  for (const request of [localRequest(), localRequest("b".repeat(64)), localRequest(undefined, { "oai-authenticated-user-id": hosted.id, "oai-authenticated-user-email": hosted.email })]) {
+    await assert.rejects(identity(request), (error: unknown) => error instanceof HttpError && error.status === 403);
+  }
+  await assert.rejects(identity(new Request("https://custody.owner.example/api/state", { headers: { "X-Custody-Local-Token": token, Host: "127.0.0.1", "X-Forwarded-Host": "localhost" } })), (error: unknown) => error instanceof HttpError && error.status === 401);
+  const platform = await identity(new Request("https://custody.owner.example/api/state", { headers: { "X-Custody-Local-Token": token, "oai-authenticated-user-id": hosted.id, "oai-authenticated-user-email": hosted.email } }));
+  assert.equal(platform.auth, "hosted");
+  assert.equal(platform.name, hosted.email);
+  delete fakeEnvironment.CUSTODY_LOCAL_SANDBOX;
+  await assert.rejects(identity(localRequest(token)), (error: unknown) => error instanceof HttpError && error.status === 403);
+});
+
+test("default loopback development ignores claimed platform identity and cannot mutate records", async () => {
+  reset();
+  const { identity, endpoint } = await import("../lib/server/runtime.ts");
+  const headers = { "oai-authenticated-user-id": hosted.id, "oai-authenticated-user-email": hosted.email };
+  const user = await identity(new Request("http://localhost:4381/api/state", { headers }));
+  assert.equal(user.id, "local-development");
+  assert.equal(user.local, true);
+  let invoked = false;
+  const result = await endpoint(new Request("http://localhost:4381/api/settings", { method: "POST", headers: { ...headers, Origin: "http://localhost:4381", "Content-Type": "application/json" }, body: "{}" }), async () => { invoked = true; return {}; }, true);
+  assert.equal(result.status, 403);
+  assert.equal(invoked, false);
 });

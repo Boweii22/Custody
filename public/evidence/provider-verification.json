@@ -1,0 +1,152 @@
+{
+  "environment": "paypal-sandbox",
+  "sourceCommit": "6f1c2962334442404064dca7bdd2bf8befeae55e",
+  "deploymentId": "appgdep_6adfa2dfdfc08191bd16ce8c3cde1d37",
+  "hostedOAuth": {
+    "verified": true,
+    "verifiedAt": "2026-10-26T18:59:16.262Z",
+    "evidence": "Actual OAuth from authenticated hosted application, persisted readiness displayed after response"
+  },
+  "checkout": {
+    "orderId": "5F683412PF382225E",
+    "amountCents": 100,
+    "currency": "USD",
+    "providerStatus": "COMPLETED",
+    "buyerApproved": true,
+    "captured": true,
+    "captureId": "8HE37607J11395116",
+    "captureStatus": "COMPLETED",
+    "verifiedAt": "2026-10-26T17:46:09.507Z",
+    "evidence": "Hosted ledger records capture completion; authenticated GET to PayPal sandbox independently returned HTTP 200 with order and capture COMPLETED for USD 1.00"
+  },
+  "additionalVerifiedCaptures": [
+    {
+      "orderId": "0GT72472FW972123E",
+      "captureId": "0MP28449MW960614W",
+      "orderStatus": "COMPLETED",
+      "captureStatus": "COMPLETED",
+      "amountCents": 100,
+      "currency": "USD",
+      "verifiedAt": "2026-10-26T17:46:09.507Z"
+    }
+  ],
+  "previousUncapturedOrder": {
+    "orderId": "1VY00501ER601710F",
+    "latestReadHttpStatus": 404,
+    "captured": false
+  },
+  "readOnlyApiChecks": [
+    {
+      "capability": "invoice-list",
+      "httpStatus": 403,
+      "verified": false,
+      "error": "NOT_AUTHORIZED",
+      "invoicingScopePresent": false
+    },
+    {
+      "capability": "dispute-list",
+      "httpStatus": 200,
+      "verified": true
+    }
+  ],
+  "openaiExtraction": "Verified with the user-provided replacement credential. Direct OpenAI constrained JSON probe succeeded, hosted constrained extraction verification succeeded, and an actual owner-authored sandbox refund request completed through model extraction, kernel checks, and PayPal.",
+  "sandboxCaptureVerified": true,
+  "productionMoneyMovement": false,
+  "softwareChecks": {
+    "testsPassed": 41,
+    "typecheck": "passed",
+    "productionBuild": "passed"
+  },
+  "credentialHandling": "Server secrets configured; secret values absent from build output and deployment archive filenames; no credentials included in this evidence file",
+  "openaiConnection": {
+    "credentialSource": "user-provided replacement in ignored .dev.vars",
+    "accountMetadata": "Replacement belongs to a different account per user; account identity not inspected",
+    "plaintextExposed": false,
+    "hostedExtractorConfigured": true,
+    "checkedAt": "2026-10-26T18:56:36.000Z",
+    "httpStatus": 200,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "requestId": "req_b4bfb38a940644edaaacdc9d8a50202e",
+    "modelResponseVerified": true,
+    "hostedExtractionVerifiedAt": "2026-10-26T18:59:18.319Z"
+  },
+  "envSetRevision": 2,
+  "refund": {
+    "orderId": "5F683412PF382225E",
+    "captureId": "8HE37607J11395116",
+    "refundId": "0UJ640930F074291C",
+    "amountCents": 100,
+    "currency": "USD",
+    "providerStatus": "COMPLETED",
+    "decisionId": "decision-12818d5c-b86a-48b9-9bb8-cf0c77c92cc6",
+    "kernelChecksPassed": 13,
+    "kernelChecksFailed": 0,
+    "verification": {
+      "method": "Independent authenticated GET /v2/payments/refunds/0UJ640930F074291C at fixed PayPal sandbox origin",
+      "httpStatus": 200,
+      "checkedAt": "2026-10-26T19:00:34.200Z"
+    },
+    "requestSource": "Explicit owner-authored sandbox integration verification request; not represented as a customer email",
+    "policy": {
+      "id": "policy-refunds",
+      "version": 3,
+      "maxAmountCents": 100,
+      "refundWindowDays": 30
+    },
+    "receiptExport": "Custody-real-refund-receipt.json",
+    "pipelineScreenshot": "Custody-real-refund-pipeline.png",
+    "offlineValidation": "Custody-refund-validation.json",
+    "embeddedCreationReceiptHashVerified": true,
+    "fullReceiptChainExported": false
+  },
+  "adversarialModelVerification": {
+    "status": "verified-held",
+    "submittedBy": "owner through browser UI",
+    "decisionId": "decision-671610f0-7370-4832-b01a-a29f4621f0a8",
+    "modelExtraction": "real API response",
+    "targetOrderId": "5F683412PF382225E",
+    "amountCents": 100,
+    "currency": "USD",
+    "verdict": "hold",
+    "decisionStatus": "held",
+    "kernelChecksPassed": 12,
+    "kernelChecksFailed": [
+      "refund_remaining"
+    ],
+    "executionCreated": false,
+    "railReferenceCreated": false,
+    "requestedReceiverAuthority": "tainted:model; non-authoritative",
+    "receiptExport": "Custody-security-test-receipt.json",
+    "offlineValidation": "Custody-security-test-validation.json",
+    "providerReadAfterTest": {
+      "checkedAt": "2026-10-29T06:13:13.825Z",
+      "environment": "paypal-sandbox",
+      "httpStatus": 200,
+      "orderId": "5F683412PF382225E",
+      "status": "COMPLETED",
+      "captures": [
+        {
+          "id": "8HE37607J11395116",
+          "status": "REFUNDED",
+          "amount": {
+            "currency_code": "USD",
+            "value": "1.00"
+          }
+        }
+      ],
+      "refunds": [
+        {
+          "id": "0UJ640930F074291C",
+          "status": "COMPLETED",
+          "amount": {
+            "currency_code": "USD",
+            "value": "1.00"
+          }
+        }
+      ]
+    },
+    "providerStillHasOnlyOriginalRefund": true,
+    "screenshot": "Custody-security-test-held.png",
+    "pipelineReplayAvailable": true
+  }
+}

@@ -6,6 +6,7 @@ import { captureSandboxOrder, createSandboxOrder, executeSandbox, getSandboxChec
 import { HttpError, railMode, requireSandboxSeller, runtime, type Identity } from "./runtime";
 import { appendReceipt, initialize, mutateState, readState, sha256, verifyChain, type ChainReceipt, type LedgerState, type PayPalOperation } from "./store";
 import { exactPayPalCents, invoiceExecutionStatus, mergeTrustedOrder, reconciliationMismatch, synchronousExecutionStatus } from "./reconciliation";
+import { applyTaskAuthorization, parseTaskAuthorization, type OwnerTaskAuthorization, type TaskAuthorization } from "../task-authority";
 
 export type StoredDecision = Omit<Decision, "status"> & {
   id: string; createdAt: string; subject: string; text: string; kind: PaymentKind;
@@ -13,6 +14,7 @@ export type StoredDecision = Omit<Decision, "status"> & {
   status: "paid" | "refunded" | "invoiced" | "evidence" | "held" | "blocked" | "rejected" | "pending" | "failed";
   amountCents: number; currency: string; counterparty: string; extraction: Extraction;
   receipt: ChainReceipt; rail?: RailResult; executionKey?: string; refundBalanceConfirmed?: boolean;
+  ownerAuthorization?: OwnerTaskAuthorization;
   approval?: { by: string; at: string; action: "approve" | "reject"; diff: unknown[] };
   railError?: string; unread?: boolean; from?: string; senderName?: string; attack?: boolean; attachment?: string;
 };
@@ -38,12 +40,12 @@ function policy(state: LedgerState, kind: PaymentKind): Policy { return policyFo
 function displayCounterparty(extraction: Extraction, ctx: KernelContext, targetId: string) {
   return ctx.vendors.find(v => v.id === targetId)?.name || ctx.customers.find(c => c.id === targetId)?.name || ctx.orders.find(o => o.id === targetId)?.customerName || (extraction.kind === "dispute" ? "PayPal dispute records" : extraction.vendor.value || extraction.customer.value || "Unknown counterparty");
 }
-async function makeDecision(state: LedgerState, extraction: Extraction, input: { id: string; subject: string; text: string; arena: boolean; mode: "sandbox"; createdAt: string }): Promise<StoredDecision> {
+async function makeDecision(state: LedgerState, extraction: Extraction, input: { id: string; subject: string; text: string; arena: boolean; mode: "sandbox"; createdAt: string; ownerAuthorization: OwnerTaskAuthorization }): Promise<StoredDecision> {
   const ctx = context(state, input.arena, input.createdAt);
-  const result = decide(resolveRequest(extraction, ctx), policy(state, extraction.kind), ctx);
+  const result = applyTaskAuthorization(decide(resolveRequest(extraction, ctx), policy(state, extraction.kind), ctx), input.ownerAuthorization);
   const status = result.status === "allow" ? "pending" : result.status === "hold" ? "held" : "blocked";
   const rail: RailResult | undefined = undefined;
-  const data = { id: input.id, subject: input.subject, kind: extraction.kind, arena: input.arena, mode: input.mode, verdict: result.status, status, plan: result.plan, execution: result.execution, policy: policy(state, extraction.kind), provenance: result.provenance, checks: result.checks, reasons: result.reasons, rail };
+  const data = { id: input.id, subject: input.subject, kind: extraction.kind, arena: input.arena, mode: input.mode, verdict: result.status, status, plan: result.plan, execution: result.execution, ownerAuthorization: input.ownerAuthorization, policy: policy(state, extraction.kind), provenance: result.provenance, checks: result.checks, reasons: result.reasons, rail };
   const receipt = await appendReceipt(state, "decision.created", data, input.createdAt);
   return { ...result, ...input, kind: extraction.kind, verdict: result.status, status, amountCents: Math.max(0, extraction.amountCents.value ?? 0), currency: extraction.currency.value || "USD", counterparty: displayCounterparty(extraction, ctx, result.plan.targetId), extraction, receipt, rail, ...(result.execution ? { executionKey: result.execution.idempotencyKey } : {}) };
 }
@@ -51,6 +53,33 @@ async function emptyLedger(): Promise<LedgerState> {
   return { schemaVersion: 1, vendors: [], customers: [], orders: [], disputes: [], policies: initialPolicies(), decisions: [], receipts: [] };
 }
 export async function ensureLedger() { await initialize(emptyLedger); }
+function taskFromRequest(value: unknown): TaskAuthorization {
+  try { return parseTaskAuthorization(value); }
+  catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "An explicitly verified merchant task is required."); }
+}
+function requireKnownTaskTarget(state: LedgerState, task: TaskAuthorization): void {
+  const known = task.kind === "refund" ? (state.orders as Order[]).some(order => order.id === task.targetId && order.paymentStatus === "COMPLETED" && !!order.captureId)
+    : task.kind === "pay_invoice" ? (state.vendors as Vendor[]).some(vendor => vendor.id === task.targetId && vendor.verified)
+    : task.kind === "send_invoice" ? (state.customers as Customer[]).some(customer => customer.id === task.targetId && customer.verified)
+    : (state.disputes as Dispute[]).some(dispute => dispute.id === task.targetId);
+  if (!known) throw new HttpError(409, "Select an existing trusted record for the merchant task. Import or independently verify it in Connections or the vendor book first.");
+}
+function requireStoredOwnerTask(row: StoredDecision, user: Identity): OwnerTaskAuthorization {
+  const task = row.ownerAuthorization;
+  if (!task || task.by !== user.id || !Number.isFinite(Date.parse(task.at))) throw new HttpError(409, "This historical decision has no verified merchant task. Reprocess the message with an explicit target and amount ceiling before approving.");
+  try { parseTaskAuthorization({ kind: task.kind, targetId: task.targetId, maxAmountCents: task.maxAmountCents, confirmed: task.confirmed }); }
+  catch { throw new HttpError(409, "The stored merchant task is invalid. Reprocess this message before approving."); }
+  return task;
+}
+
+/** Owner-only export includes execution.result events omitted from individual decision exports. */
+export async function exportReceiptChain(user: Identity) {
+  requireSandboxSeller(user);
+  await ensureLedger();
+  const { state } = await readState();
+  return { format: "custody-receipt-chain-v1", exportedAt: new Date().toISOString(), environment: "paypal-sandbox",
+    chain: await verifyChain(state), receipts: state.receipts };
+}
 async function connectionFingerprints() {
   const env = runtime();
   return { paypal: await sha256(JSON.stringify([env.PAYPAL_CLIENT_ID, env.PAYPAL_CLIENT_SECRET, env.CUSTODY_SELLER_ID, railMode()])), extractor: await sha256(JSON.stringify([env.EXTRACTOR_URL, env.EXTRACTOR_KEY, env.EXTRACTOR_MODEL])) };
@@ -90,7 +119,7 @@ export async function appState(user: Identity) {
   const sellerConfigured = !!env.CUSTODY_SELLER_ID && user.id === env.CUSTODY_SELLER_ID && !user.local;
   const checks: ConnectionCheck[] = [
     { id: "rail", label: "PayPal sandbox mode", status: railMode() === "sandbox" ? "ready" : "missing", detail: railMode() === "sandbox" ? "The server permits only the fixed PayPal sandbox origin." : "Set CUSTODY_RAIL=sandbox. No payment rail is active." },
-    { id: "seller", label: "Authenticated seller", status: sellerConfigured ? "ready" : "missing", detail: sellerConfigured ? "The hosted authenticated identity matches CUSTODY_SELLER_ID." : "Configure this hosted seller's authenticated identity. Local development cannot execute sandbox operations." },
+    { id: "seller", label: "Authenticated seller", status: sellerConfigured ? "ready" : "missing", detail: sellerConfigured ? `The configured seller is authenticated by ${user.auth === "local-token" ? "explicit loopback-token access" : "the hosted Site"}.` : "Configure the seller's authenticated identity. Default local development is read-only; own-account local sandbox use requires explicit opt-in and token access." },
     { id: "paypal", label: "PayPal sandbox OAuth", status: paypalVerified ? "ready" : hasSandboxCredentials(env) ? "unverified" : "missing", detail: paypalVerified ? `OAuth verified at ${state.connectionVerifications!.paypal!.at}. This does not verify product entitlements or settlement.` : hasSandboxCredentials(env) ? "Credentials are present; verify the actual sandbox OAuth connection." : "Add the sandbox app client ID and secret as server secrets." },
     { id: "extractor", label: "Model extraction", status: modelVerified ? "ready" : extractorConfigured() ? "unverified" : "missing", detail: modelVerified ? `A real constrained model response was validated at ${state.connectionVerifications!.extractor!.at}.` : extractorConfigured() ? "Endpoint settings are present; verify an actual constrained model response." : "Configure an HTTPS model endpoint, key, and model. No parser fallback is available." },
     { id: "policies", label: "Explicit payment policies", status: (state.policies as Policy[]).some(value => value.enabled) ? "ready" : "missing", detail: "Policy templates start disabled. Enable only the playbooks and limits you authorize; disabled playbooks hold requests." },
@@ -111,32 +140,22 @@ export async function processMessage(body: Record<string, unknown>, user: Identi
   if (typeof body.text !== "string" || body.text.trim().length < 3 || body.text.length > 6000) throw new HttpError(400, "Message text must contain 3–6,000 characters.");
   if (body.subject !== undefined && (typeof body.subject !== "string" || body.subject.length > 180)) throw new HttpError(400, "Subject must be at most 180 characters.");
   if (body.arena !== undefined && typeof body.arena !== "boolean") throw new HttpError(400, "arena must be a boolean.");
+  if (body.kind !== undefined) throw new HttpError(400, "Choose the playbook in authorization.kind. The model's extracted kind cannot be overwritten.");
+  const task = taskFromRequest(body.authorization);
+  requireKnownTaskTarget((await readState()).state, task);
+  const ownerAuthorization: OwnerTaskAuthorization = { ...task, by: user.id, at: new Date().toISOString() };
+  // Network reads are chosen by the merchant's task, never by a model claim.
+  if (task.kind === "refund") await importOrder(task.targetId, user);
+  if (task.kind === "dispute") await importDispute(task.targetId, user);
   const arena = body.arena === true;
   const text = body.text;
   const subject = typeof body.subject === "string" && body.subject.trim() ? body.subject.trim() : arena ? "Arena submission" : "New inbox message";
   const id = `decision-${crypto.randomUUID()}`;
   const extraction = await extractQuarantined({ id: `source-${(await sha256(`${subject}\n${text}`)).slice(0, 24)}`, subject, body: text });
-  // An explicit selector chooses only the playbook, never its authority.
-  if (body.kind !== undefined) {
-    if (!["pay_invoice", "refund", "send_invoice", "dispute"].includes(body.kind as string)) throw new HttpError(400, "Unsupported playbook.");
-    extraction.kind = body.kind as PaymentKind;
-    extraction.requestType.value = extraction.kind;
-  }
   const mode = "sandbox" as const;
   await recordConnectionVerification("extractor", (await connectionFingerprints()).extractor);
-  if (mode === "sandbox" && extraction.kind === "dispute" && extraction.disputeId.value && !extraction.disputeId.value.startsWith("DEMO-")) await importDispute(extraction.disputeId.value, user);
-  if (mode === "sandbox" && extraction.kind === "refund" && extraction.orderId.value && !extraction.orderId.value.startsWith("DEMO-")) {
-    const current = await getSandboxOrder(extraction.orderId.value);
-    await mutateState(async state => {
-      const previous = (state.orders as Order[]).find(value => value.id === current.id);
-      const merged = mergeTrustedOrder(previous, current);
-      state.orders = [...state.orders.filter(value => (value as Order).id !== current.id), merged];
-      confirmRefundSnapshot(state, current);
-      await appendReceipt(state, "paypal.order.refreshed", current);
-    });
-  }
   const row = await mutateState(async state => {
-    const decision = await makeDecision(state, extraction, { id, subject, text, arena, mode, createdAt: new Date().toISOString() });
+    const decision = await makeDecision(state, extraction, { id, subject, text, arena, mode, createdAt: new Date().toISOString(), ownerAuthorization });
     decisions(state).push(decision);
     return decision;
   });
@@ -172,8 +191,11 @@ export async function reviewDecision(id: string, action: unknown, user: Identity
   await ensureLedger();
   if (action === "approve") {
     const previous = decisions((await readState()).state).find(value => value.id === id);
-    if (previous?.kind === "refund") await importOrder(previous.plan.targetId, user);
-    if (previous?.kind === "dispute") await importDispute(previous.plan.targetId, user);
+    if (!previous) throw new HttpError(404, "Decision not found.");
+    const task = requireStoredOwnerTask(previous, user);
+    requireKnownTaskTarget((await readState()).state, task);
+    if (task.kind === "refund") await importOrder(task.targetId, user);
+    if (task.kind === "dispute") await importDispute(task.targetId, user);
   }
   if (action !== "approve" && action !== "reject") throw new HttpError(400, "Choose approve or reject.");
   const row = await mutateState(async state => {
@@ -196,7 +218,9 @@ export async function reviewDecision(id: string, action: unknown, user: Identity
     for (const field of ["receiver", "recipient", "captureId", "disputeId"]) {
       if (stored.plan.args[field]?.value !== plan.args[field]?.value) throw new HttpError(409, "Trusted destinations changed since this request was shown. Reprocess the message to review the current provenance before approving.");
     }
-    const before = decide(plan, currentPolicy, ctx);
+    const ownerAuthorization = requireStoredOwnerTask(stored, user);
+    requireKnownTaskTarget(state, ownerAuthorization);
+    const before = applyTaskAuthorization(decide(plan, currentPolicy, ctx), ownerAuthorization);
     const allowedExceptions = new Set(["amount_cap", "vendor_cap"]);
     if (before.reasons.some(reason => !allowedExceptions.has(reason.code))) throw new HttpError(409, "Resolve the trusted record or policy issue first. Approval cannot authorize an inbox destination, an expired return, an over-refund, or a duplicate payment.");
     const diff: unknown[] = [];
@@ -209,10 +233,10 @@ export async function reviewDecision(id: string, action: unknown, user: Identity
       diff.push({ field: "vendor.limitCents", before: vendor.limitCents, after: stored.amountCents, scope: "this decision only" });
       vendor.limitCents = stored.amountCents;
     }
-    const checked = decide(plan, currentPolicy, ctx);
+    const checked = applyTaskAuthorization(decide(plan, currentPolicy, ctx), ownerAuthorization);
     if (checked.status !== "allow" || !checked.execution) throw new HttpError(409, "This action still fails the deterministic kernel.");
     Object.assign(stored, checked, { verdict: "allow", status: "pending", executionKey: checked.execution.idempotencyKey, approval: { by: user.id, at, action, diff } });
-    await appendReceipt(state, "decision.approved", { decisionId: id, ...stored.approval, plan, execution: checked.execution, provenance: checked.provenance });
+    await appendReceipt(state, "decision.approved", { decisionId: id, ...stored.approval, ownerAuthorization, plan, execution: checked.execution, provenance: checked.provenance });
     return stored;
   });
   if (row.status === "pending") await finishExecution(row);

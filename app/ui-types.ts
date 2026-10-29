@@ -1,4 +1,12 @@
-import type { Check, ProvenanceField, Customer, Order, Dispute } from '../lib/kernel';
+import type { Check, ProvenanceField, Customer, Order, Dispute, PaymentKind } from '../lib/kernel';
+export interface OwnerAuthorization {
+    kind: PaymentKind;
+    targetId: string;
+    maxAmountCents: number;
+    confirmed: true;
+    by: string;
+    at: string;
+}
 export interface Decision {
     id: string;
     createdAt: string;
@@ -14,6 +22,7 @@ export interface Decision {
     counterparty: string;
     extraction?: Record<string, unknown>;
     receipt?: unknown;
+    ownerAuthorization?: OwnerAuthorization;
     reasons?: unknown[];
     checks?: Check[];
     provenance?: ProvenanceField[];

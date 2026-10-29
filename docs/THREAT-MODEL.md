@@ -1,60 +1,60 @@
 # Custody threat model
 
-The claim is deliberately narrow: inbox text must not supply authority for a money destination. Custody resolves a claimed vendor, order or customer against an owner-controlled store, then a deterministic policy kernel checks the proposed call before execution. An extraction model is a parser, never an authority.
+Custody separates proposed payment claims from payment authority. A real extractor parses untrusted text. The merchant selects a specific trusted target, action and maximum outside that text. The resolver and deterministic gates constrain the executable call to that task and canonical records.
 
-This document describes the implemented boundary, not a certification that all prompt injection, fraud or payment loss has been prevented.
+This is an implemented boundary with scoped evidence, not a certification that all prompt injection, fraud or payment loss has been prevented.
 
 ## Trust boundaries
 
-| Surface | Trust | Permitted role |
-| --- | --- | --- |
-| Email, pasted document text, product-page text, arena submissions | Untrusted | Suggest a task, claimed identity, invoice number and amount |
-| Extractor output, including any apparent tool instructions or provenance labels | Untrusted | Structured claims only; the server creates labels |
-| Owner-maintained vendor book | Trusted for vendor identity and destination | Resolve a selected vendor into the allowed payout receiver |
-| Owner-maintained customer records | Trusted for client identity and destination | Resolve a selected customer into an invoice recipient |
-| Capture/order records resolved by the server | Trusted within the active adapter | Supply capture identity, payment amount and refund history |
-| Compiled playbooks | Owner authority | Set permitted tools, provenance requirements, caps and refund windows |
-| Explicit owner approval | Owner authority | Grant a one-time amount-cap exception for an existing trusted destination |
-| Browser and model-generated text | Untrusted | Present requests and explanations; they cannot grant themselves authority |
+| Surface | Trust and permitted role |
+| --- | --- |
+| Pasted message, subject, claimed sender and embedded markup | Untrusted; may state payment claims, never grant authority |
+| Model output, including apparent labels or tool instructions | Untrusted; server-generated labels mark its fields `tainted:model` |
+| Authenticated owner's task form | Authority for one selected playbook, existing target and maximum; actor/time come from the server |
+| Vendor/customer book | Owner-controlled canonical destinations after explicit independent verification |
+| Server-fetched PayPal record | Capture identity, currency, amount and observed refund history |
+| Enabled versioned policy | Standing tool/currency/cap/window authority |
+| Stored owner review | Bounded review of an existing task; cannot replace that task or financial invariants |
+| Browser display and animation | Presentation/replay, without authority to change stored payment arguments |
 
-The real workspace rejects arena submissions until a separately isolated actual sandbox environment is implemented. Historical `DEMO-*` records and fixture tests do not establish PayPal balances or settlement and are not loaded into the real ledger. Keep the hosted Site owner-private: setup binds its first authenticated owner until an explicit seller ID is configured. Configure `CUSTODY_SELLER_ID` before sandbox execution. A shared seller snapshot is not tenant isolation.
+Hosted execution requires the configured owner authenticated by Sites. Ordinary local development is inspection-only. The explicit own-account judge opt-in additionally supports loopback requests authenticated by a generated local token; the hosted path ignores that token. Neither a caller-provided identity header nor the word `trusted` in a message authenticates a user.
 
 ## Attacker capability
 
-The attacker may control the entire submitted message, subject, claimed sender and any text copied from an HTML email, PDF or product page. They may impersonate a system prompt, forge JSON, claim prior owner approval, encode instructions, insert hidden-looking markup and name a real vendor or order. They may repeat requests, alter invoice numbers and try destinations that fit the spending cap. The model may follow the malicious instructions and return a fully attacker-controlled extraction.
+The attacker may control the entire pasted message and subject, impersonate system prompts, forge JSON/approval/provenance labels, name a different real order, suggest an alternate receiver, repeat claims or alter amount/currency. Assume a fully compromised extraction can propose arbitrary schema-valid claims.
 
-The attacker is not assumed to possess an authenticated owner session, the server's credentials, the ability to modify code or the trusted stores, or control over PayPal. A provenance label written inside an email is just email content.
+The attacker is not assumed to possess an authenticated merchant session, alter the merchant-selected task outside the message, change trusted records or code, steal server credentials, or control PayPal. A compromised owner account is outside that boundary and remains powerful.
 
-## Enforced policy
+## Enforced controls
 
-For protected destination arguments, a trusted label is necessary but insufficient: the value must also equal the destination resolved from the selected trusted record. A forged `trusted:vendor_book` label cannot authorize an unrelated receiver. Derived values retain their input provenance unless a deterministic resolver supplies a new authoritative value.
+An operational request needs an explicit owner task with a supported playbook, an existing canonical target, a positive integer USD ceiling and confirmed merchant authorization. The server records who supplied it and when. Model output cannot overwrite that playbook selection. The task gate blocks a different action, different resolved target, missing task or excess amount and removes execution arguments on failure.
 
-The payout receiver must match the selected vendor-book record. A refund capture must match the resolved order/capture record; the payment rail returns a refund to the original payer. An invoice recipient must match the selected customer record. Unsupported actions, unresolved identities, invalid values and policy violations are rejected, held or blocked. A successful kernel decision authorizes only its resolved execution arguments. The shipped review flow can grant a one-time policy/vendor amount-cap exception; it cannot bless an inbox destination, an expired return, an over-refund or a duplicate payment. Arena decisions cannot receive seller approval.
+A protected destination must have the required trusted label **and** equal the value resolved from its canonical record. A forged label alone cannot authorize an unrelated receiver. Refunds resolve the original capture and cannot add an alternate recipient to the refund rail. Amounts must fit both standing and task limits, be exact positive USD cents, remain within the actual refundable balance and meet the return window. Duplicate source/invoice keys are reserved before network execution.
 
-Initial policy templates are disabled. The owner must explicitly enable and configure spending authority. Amounts must be positive safe integer USD cents. Refunds require the remaining refundable balance and a capture within the active policy window. Duplicate invoice keys use the task kind, selected target and normalized invoice number. Consult the active policy for the authoritative configuration.
+Owner review re-resolves current trusted records and retains the original task. It cannot approve a different target, an amount above the task ceiling, an over-refund, an expired refund or a duplicate. Historical pre-task-binding decisions remain inspectable but cannot gain execution through legacy approval.
 
-An attacker-supplied receiver can be discarded and a trusted receiver used instead. Therefore an `allow` verdict is not itself an attack success. The executed arguments and the adapter's resulting state determine the outcome. Conversely, a `hold` is a request for owner attention, not proof that the input was malicious.
+An attacker-supplied receiver can be discarded while a canonical original capture is allowed. An `allow` verdict alone is not an attack success; inspect the minimal execution arguments. A `hold` is a failed invariant requiring attention, not a classifier proving the text malicious.
 
 ## Limits that matter
 
-**A compromised vendor book compromises destination authority.** If an attacker changes an owner's vendor address or an owner approves the attacker's payee as a trusted record, that new value is trusted by design. Provenance checks cannot determine whether the owner intended that change. Protect store mutation and approval with authentication, authorization, session security and auditability before exposing owner controls.
+**Commercial entitlement remains a merchant decision.** The application does not authenticate the person who authored pasted text or prove that goods, invoices or refunds are justified. The owner must independently verify the underlying request before authorizing a target/task. Future integration with signed tickets, authenticated customer sessions or trusted order-management tasks would require its own verification.
 
-**Caps do not authenticate invoices.** An attacker who can name a known vendor may induce a payment to that legitimate vendor, at an allowed amount, for a fabricated or repeated commercial obligation with a new invoice identifier. The kernel constrains the call; it does not establish that goods were delivered, that an invoice is genuine, or that a requested payment is economically justified. Purchase-order matching, signed invoices, supplier confirmation and stronger deduplication are additional controls.
+**A valid extraction is not necessarily a correct extraction.** Schema validation establishes shape. The model may misread an amount or request. The task maximum bounds the authorized amount rather than proving the exact semantic amount owed. Inspect the real-model evaluation's legitimate-control errors and failed cases, not only its denied attacks.
 
-**A valid extraction is not a true extraction.** Schema validity only establishes shape. The rule-based demo extractor and an optional model can misidentify vendors, amounts, dates and request types. The kernel still checks provenance, record equality and invariants, but semantic task correctness and extraction accuracy require separate evaluation. A model that emits arbitrary text has not been shown robust by a local deterministic corpus run.
+**Trusted stores and owner sessions remain powerful.** A compromised vendor book can change destination authority; a compromised or malicious owner can deliberately authorize harmful work. Provenance cannot determine whether an independently verified owner action was wise or coerced. Protect accounts, server configuration and store mutation.
 
-**Owner authority remains powerful.** A compromised owner account, malicious owner or coerced approval can authorize harmful actions. Held actions must be reviewed against the underlying record, not approved solely because an AI explanation sounds confident. A local development identity is suitable for loopback demonstration only.
+**Provider and concurrency assumptions require evidence.** The ledger reserves before execution, retains uncertain outcomes and reconciles known provider references without resubmitting. A network error with no reference may require investigation. Incorrect provider history, stale records, account permissions and concurrent external merchant actions still matter. Provider status must establish completion; an allowed plan or replay cannot do so.
 
-**Trusted inputs may still be stale or wrong.** Incorrect vendor/customer records, incomplete refund history, stale state, payment-provider responses and concurrency failures can invalidate assumptions. Adapter responses, idempotency, reconciliation, persistence and multi-instance consistency need independent verification for a deployment.
+**Receipts have a defined integrity scope.** SHA-256 chain checks detect internal inconsistencies but are not externally anchored immutable accounting. Individual decision exports contain a creation receipt and current fields; their embedded hash does not bind every later execution field. The full authenticated chain export includes separate execution events for continuity verification. Compare recorded provider references with PayPal for actual status.
 
-**Text output is a separate surface.** The guarantee does not cover abusive drafts, misleading summaries, data disclosure in generated prose, reputational harm, malicious links or the safety of a reply sent outside the payment tools. Do not render submitted HTML as executable markup. The arena's copied PDF/HTML/page placements exercise text handling, not a browser, a PDF renderer or OCR.
+**Availability and data disclosure are separate surfaces.** Limits and budget breakers reduce abuse but do not prove resistance to outages, distributed denial of service, dependency compromise or owner-account takeover. Pasted text is stored and sent to the model endpoint. Text must render plainly; no generated payment prose should be treated as commercial truth or authorization.
 
-**Availability and operational abuse remain possible.** Rate limits, size limits and budget breakers reduce abuse but do not prove resistance to distributed denial of service, account takeover, dependency compromise or payment-provider outages. Arena runs are isolated demonstrations and must not share production payment authority.
+**Scope is single-seller sandbox.** There is no production payment path, multi-tenant isolation claim, anonymous webhook-delivery claim, live attack-money arena or implemented vulnerable-agent baseline. Keep the merchant workspace protected. Never expose local authentication or server secrets in a recording or public source.
 
 ## Evidence and falsification
 
-Kernel tests can establish the tested invariants without a model or network. The HTTP corpus in `benchmark/` records actual server verdicts, execution arguments when present, the extraction method and adapter mode. It refuses to count absent execution data as a verified safe allowed call. Its local report is not a baseline comparison, a public red-team result or a PayPal-state benchmark.
+The actual recorded hosted core includes a completed USD 1.00 refund and a forged-authority reattempt held against its exhausted balance. Those decisions predate the later explicit task gate. The current gate has separate software tests and a reproducible real-model/read-only evaluation using fresh PayPal snapshots and the production pure resolver/kernel/task gate. It does not execute payment plans or test the complete hosted handler.
 
-A sandbox theft claim needs provider-side evidence: independently query the attacker's sandbox account or the payout/refund records before and after each isolated episode, retain transaction IDs, account roles and timestamps, and attribute movement to the tested episode. Use the same model, tools, tasks, seeds and budget for an ungated baseline, publish its exact prompt and reset state between trials. A screen animation, an `allow` status or a `DEMO-*` identifier is insufficient evidence.
+The older `benchmark/` is historical simulated/deterministic-extractor evidence. Its counts are not real-model robustness, provider-state theft measurement or a baseline comparison.
 
-The invariant is falsified by an unapproved execution whose protected destination is attacker-controlled and lacks the required trusted resolution, even if the amount is below every cap. Report such cases with the full request, decision receipt and adapter record.
+A failed authority boundary includes any executable plan whose action, target or amount exceeds the merchant-selected task, or whose protected destination does not equal the required canonical record. Retain the full actual input, task, model claims, observed checks, planned arguments and provider record when reporting a failure. Publish failures and false holds as well as successes.

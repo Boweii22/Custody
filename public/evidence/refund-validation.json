@@ -1,0 +1,18 @@
+{
+  "validatedAt": "2026-10-29T06:11:51.692Z",
+  "artifact": "Custody-real-refund-receipt.json",
+  "allChecksPassed": true,
+  "checks": {
+    "decisionIdentity": true,
+    "sandboxOnly": true,
+    "completedRefund": true,
+    "refundReference": true,
+    "originalCapture": true,
+    "exactAmount": true,
+    "allKernelChecksPassed": true,
+    "creationReceiptHash": true,
+    "creationReceiptIdentity": true,
+    "sourceId": true
+  },
+  "integrityScope": "The embedded decision.created receipt is verified. This file does not include the full chain or its separate execution.result event; final provider status is independently verified in Custody-provider-verification.json."
+}

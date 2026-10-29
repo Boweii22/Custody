@@ -1,0 +1,20 @@
+{
+  "checkedAt": "2026-10-29T07:05:51.211Z",
+  "environment": "loopback-only with explicit temporary owner token",
+  "authentication": "local-token",
+  "authenticatedStateHttpStatus": 200,
+  "oauthVerifiedAt": "2026-10-29T07:01:22.042Z",
+  "constrainedExtractionVerifiedAt": "2026-10-29T07:01:23.386Z",
+  "actualImportedOrder": "0GT72472FW972123E",
+  "actualCapture": "0MP28449MW960614W",
+  "capturedCents": 100,
+  "refundedCents": 0,
+  "operatingDecisionsCreated": 0,
+  "paymentCallsMade": 0,
+  "taskControlsVerified": true,
+  "requestSubmitted": false,
+  "localTokenClearedFromBrowser": true,
+  "temporaryLocalConfigurationRemoved": true,
+  "localServerStopped": true,
+  "credentialsPrinted": false
+}

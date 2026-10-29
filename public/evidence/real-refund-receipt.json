@@ -1,0 +1,448 @@
+{
+  "status": "refunded",
+  "reasons": [],
+  "checks": [
+    {
+      "id": "supported_action",
+      "label": "Supported playbook",
+      "passed": true,
+      "message": "Action must match a supported Custody playbook."
+    },
+    {
+      "id": "policy_match",
+      "label": "Standing policy is active",
+      "passed": true,
+      "message": "An enabled, versioned standing policy must authorize this action."
+    },
+    {
+      "id": "policy_cap",
+      "label": "Policy cap is valid",
+      "passed": true,
+      "message": "The standing policy must provide a positive integer USD cap."
+    },
+    {
+      "id": "clock_valid",
+      "label": "Trusted evaluation time",
+      "passed": true,
+      "message": "The trusted evaluation time must be a valid timestamp."
+    },
+    {
+      "id": "amount_valid",
+      "label": "Exact positive cents",
+      "passed": true,
+      "message": "Amount must be a positive, safe integer number of cents."
+    },
+    {
+      "id": "currency_usd",
+      "label": "USD only",
+      "passed": true,
+      "message": "Only USD is authorized by this standing policy."
+    },
+    {
+      "id": "amount_cap",
+      "label": "Within standing spend cap",
+      "passed": true,
+      "message": "Amount must stay within the standing cap of 100 cents."
+    },
+    {
+      "id": "order_known",
+      "label": "Captured order exists",
+      "passed": true,
+      "message": "Refunds require an original, completed capture from the trusted order store."
+    },
+    {
+      "id": "captureId_provenance",
+      "label": "captureId has trusted provenance",
+      "passed": true,
+      "message": "captureId resolved from the original PayPal capture."
+    },
+    {
+      "id": "order_currency",
+      "label": "Original capture is USD",
+      "passed": true,
+      "message": "The original capture must be denominated in USD."
+    },
+    {
+      "id": "refund_remaining",
+      "label": "Within remaining captured amount",
+      "passed": true,
+      "message": "Refund cannot exceed the captured amount less refunds already recorded."
+    },
+    {
+      "id": "refund_window",
+      "label": "Inside refund window",
+      "passed": true,
+      "message": "The original capture must be within the 30-day refund window."
+    },
+    {
+      "id": "refund_unique",
+      "label": "Refund request has not executed",
+      "passed": true,
+      "message": "This refund request must not already be recorded in the executed ledger."
+    }
+  ],
+  "provenance": [
+    {
+      "field": "amountCents",
+      "value": 100,
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+      "authoritative": false
+    },
+    {
+      "field": "currency",
+      "value": "USD",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+      "authoritative": false
+    },
+    {
+      "field": "invoiceNumber",
+      "value": "",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+      "authoritative": false
+    },
+    {
+      "field": "requestType",
+      "value": "refund",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+      "authoritative": false
+    },
+    {
+      "field": "orderClaim",
+      "value": "5F683412PF382225E",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+      "authoritative": false
+    },
+    {
+      "field": "captureId",
+      "value": "8HE37607J11395116",
+      "label": "trusted:paypal",
+      "source": "Order store · 5F683412PF382225E",
+      "required": "trusted:paypal",
+      "authoritative": true
+    }
+  ],
+  "tool": "paypal.payments.refund",
+  "plan": {
+    "kind": "refund",
+    "targetId": "5F683412PF382225E",
+    "sourceId": "source-23cd810e543a4ce3c54446c5",
+    "args": {
+      "amountCents": {
+        "value": 100,
+        "label": "tainted:model",
+        "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+      },
+      "currency": {
+        "value": "USD",
+        "label": "tainted:model",
+        "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+      },
+      "invoiceNumber": {
+        "value": "",
+        "label": "tainted:model",
+        "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+      },
+      "requestType": {
+        "value": "refund",
+        "label": "tainted:model",
+        "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+      },
+      "orderClaim": {
+        "value": "5F683412PF382225E",
+        "label": "tainted:model",
+        "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+      },
+      "captureId": {
+        "value": "8HE37607J11395116",
+        "label": "trusted:paypal",
+        "source": "Order store · 5F683412PF382225E"
+      }
+    }
+  },
+  "execution": {
+    "tool": "paypal.payments.refund",
+    "args": {
+      "captureId": "8HE37607J11395116",
+      "amountCents": 100,
+      "currency": "USD",
+      "orderId": "5F683412PF382225E"
+    },
+    "idempotencyKey": "[\"refund\",\"5F683412PF382225E\",\"source-23cd810e543a4ce3c54446c5\"]"
+  },
+  "id": "decision-12818d5c-b86a-48b9-9bb8-cf0c77c92cc6",
+  "subject": "Owner sandbox refund request",
+  "text": "Please refund USD 1.00 from my completed sandbox checkout.\nOrder ID: 5F683412PF382225E\nAmount: USD 1.00\nReturn this refund to the original payment. This is my sandbox integration verification request.",
+  "arena": false,
+  "mode": "sandbox",
+  "createdAt": "2026-10-26T19:00:14.162Z",
+  "kind": "refund",
+  "verdict": "allow",
+  "amountCents": 100,
+  "currency": "USD",
+  "counterparty": "John DoeskipKYC",
+  "extraction": {
+    "sourceId": "source-23cd810e543a4ce3c54446c5",
+    "rawText": "Owner sandbox refund request\n\nPlease refund USD 1.00 from my completed sandbox checkout.\nOrder ID: 5F683412PF382225E\nAmount: USD 1.00\nReturn this refund to the original payment. This is my sandbox integration verification request.",
+    "hostileSpans": [],
+    "kind": "refund",
+    "requestType": {
+      "value": "refund",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "vendor": {
+      "value": "",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "customer": {
+      "value": "",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "invoiceNumber": {
+      "value": "",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "orderId": {
+      "value": "5F683412PF382225E",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "disputeId": {
+      "value": "",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "amountCents": {
+      "value": 100,
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "currency": {
+      "value": "USD",
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "requestedReceiver": {
+      "value": null,
+      "label": "tainted:model",
+      "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+    },
+    "extraction": "model",
+    "method": "model"
+  },
+  "receipt": {
+    "index": 19,
+    "at": "2026-10-26T19:00:14.162Z",
+    "previousHash": "9e7cd9649a6ea93c5c752bfeb6c2582af3923c70f1de7f29e40cb55bdcf9c298",
+    "event": "decision.created",
+    "data": {
+      "id": "decision-12818d5c-b86a-48b9-9bb8-cf0c77c92cc6",
+      "subject": "Owner sandbox refund request",
+      "kind": "refund",
+      "arena": false,
+      "mode": "sandbox",
+      "verdict": "allow",
+      "status": "pending",
+      "plan": {
+        "kind": "refund",
+        "targetId": "5F683412PF382225E",
+        "sourceId": "source-23cd810e543a4ce3c54446c5",
+        "args": {
+          "amountCents": {
+            "value": 100,
+            "label": "tainted:model",
+            "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+          },
+          "currency": {
+            "value": "USD",
+            "label": "tainted:model",
+            "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+          },
+          "invoiceNumber": {
+            "value": "",
+            "label": "tainted:model",
+            "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+          },
+          "requestType": {
+            "value": "refund",
+            "label": "tainted:model",
+            "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+          },
+          "orderClaim": {
+            "value": "5F683412PF382225E",
+            "label": "tainted:model",
+            "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5"
+          },
+          "captureId": {
+            "value": "8HE37607J11395116",
+            "label": "trusted:paypal",
+            "source": "Order store · 5F683412PF382225E"
+          }
+        }
+      },
+      "execution": {
+        "tool": "paypal.payments.refund",
+        "args": {
+          "captureId": "8HE37607J11395116",
+          "amountCents": 100,
+          "currency": "USD",
+          "orderId": "5F683412PF382225E"
+        },
+        "idempotencyKey": "[\"refund\",\"5F683412PF382225E\",\"source-23cd810e543a4ce3c54446c5\"]"
+      },
+      "policy": {
+        "id": "policy-refunds",
+        "name": "Refund original payments",
+        "version": 3,
+        "kind": "refund",
+        "enabled": true,
+        "maxAmountCents": 100,
+        "currency": "USD",
+        "refundWindowDays": 30,
+        "description": "Refund only the original PayPal capture within the remaining captured amount. Disabled until enabled."
+      },
+      "provenance": [
+        {
+          "field": "amountCents",
+          "value": 100,
+          "label": "tainted:model",
+          "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+          "authoritative": false
+        },
+        {
+          "field": "currency",
+          "value": "USD",
+          "label": "tainted:model",
+          "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+          "authoritative": false
+        },
+        {
+          "field": "invoiceNumber",
+          "value": "",
+          "label": "tainted:model",
+          "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+          "authoritative": false
+        },
+        {
+          "field": "requestType",
+          "value": "refund",
+          "label": "tainted:model",
+          "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+          "authoritative": false
+        },
+        {
+          "field": "orderClaim",
+          "value": "5F683412PF382225E",
+          "label": "tainted:model",
+          "source": "Quarantined model claims · source-23cd810e543a4ce3c54446c5",
+          "authoritative": false
+        },
+        {
+          "field": "captureId",
+          "value": "8HE37607J11395116",
+          "label": "trusted:paypal",
+          "source": "Order store · 5F683412PF382225E",
+          "required": "trusted:paypal",
+          "authoritative": true
+        }
+      ],
+      "checks": [
+        {
+          "id": "supported_action",
+          "label": "Supported playbook",
+          "passed": true,
+          "message": "Action must match a supported Custody playbook."
+        },
+        {
+          "id": "policy_match",
+          "label": "Standing policy is active",
+          "passed": true,
+          "message": "An enabled, versioned standing policy must authorize this action."
+        },
+        {
+          "id": "policy_cap",
+          "label": "Policy cap is valid",
+          "passed": true,
+          "message": "The standing policy must provide a positive integer USD cap."
+        },
+        {
+          "id": "clock_valid",
+          "label": "Trusted evaluation time",
+          "passed": true,
+          "message": "The trusted evaluation time must be a valid timestamp."
+        },
+        {
+          "id": "amount_valid",
+          "label": "Exact positive cents",
+          "passed": true,
+          "message": "Amount must be a positive, safe integer number of cents."
+        },
+        {
+          "id": "currency_usd",
+          "label": "USD only",
+          "passed": true,
+          "message": "Only USD is authorized by this standing policy."
+        },
+        {
+          "id": "amount_cap",
+          "label": "Within standing spend cap",
+          "passed": true,
+          "message": "Amount must stay within the standing cap of 100 cents."
+        },
+        {
+          "id": "order_known",
+          "label": "Captured order exists",
+          "passed": true,
+          "message": "Refunds require an original, completed capture from the trusted order store."
+        },
+        {
+          "id": "captureId_provenance",
+          "label": "captureId has trusted provenance",
+          "passed": true,
+          "message": "captureId resolved from the original PayPal capture."
+        },
+        {
+          "id": "order_currency",
+          "label": "Original capture is USD",
+          "passed": true,
+          "message": "The original capture must be denominated in USD."
+        },
+        {
+          "id": "refund_remaining",
+          "label": "Within remaining captured amount",
+          "passed": true,
+          "message": "Refund cannot exceed the captured amount less refunds already recorded."
+        },
+        {
+          "id": "refund_window",
+          "label": "Inside refund window",
+          "passed": true,
+          "message": "The original capture must be within the 30-day refund window."
+        },
+        {
+          "id": "refund_unique",
+          "label": "Refund request has not executed",
+          "passed": true,
+          "message": "This refund request must not already be recorded in the executed ledger."
+        }
+      ],
+      "reasons": []
+    },
+    "hash": "4c5b6de7432076346a04805a1020e789de712157bb754164dc9f479cace56d44"
+  },
+  "executionKey": "[\"refund\",\"5F683412PF382225E\",\"source-23cd810e543a4ce3c54446c5\"]",
+  "rail": {
+    "mode": "sandbox",
+    "reference": "0UJ640930F074291C",
+    "status": "COMPLETED"
+  },
+  "refundBalanceConfirmed": true
+}

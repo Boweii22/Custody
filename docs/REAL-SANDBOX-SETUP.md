@@ -1,31 +1,40 @@
 # Connect real sandbox services
 
-Custody is not fully verified. The application must call your PayPal sandbox app and your model provider before a successful connection or payment can be claimed. Sandbox records are genuine PayPal test-environment transactions, with no production funds.
+The recorded core has called PayPal sandbox and OpenAI successfully; see [`evidence/`](../evidence/). Your own credentials are not verified by copying this repository. Sandbox transactions are actual records in PayPal's test environment, with no production funds.
 
-## Account setup
+For a complete fresh local installation, use [judge setup](JUDGES.md). The instructions below describe the hosted owner workspace.
 
-1. Open [PayPal Apps & Credentials](https://developer.paypal.com/dashboard/applications/sandbox), sign in and choose **Sandbox**.
-2. Use or create a REST app associated with your sandbox business account. Enable the API capabilities you intend to test, including Payouts, Invoicing and Customer Disputes where available.
-3. Copy its Client ID and Secret into the ignored `.dev.vars` file in this checkout. Do not put secrets in chat, source control or a browser form.
-4. In the deployed Custody app, open **Connections**, copy your authenticated owner ID and set `CUSTODY_SELLER_ID` to that exact value in `.dev.vars`.
-5. Configure an HTTPS OpenAI-compatible chat-completions endpoint, its server API key and a model that supports strict JSON schema using `EXTRACTOR_URL`, `EXTRACTOR_KEY` and `EXTRACTOR_MODEL`. There is no rule-parser fallback. If using OpenAI key provisioning through Codex, enable the OpenAI Developers plugin and complete its required authorization.
-6. Have the agent transfer these values directly into the Site's server environment as secrets, without displaying their values, then redeploy. Local files do not automatically configure hosting.
+## Hosted account setup
 
-Official provider instructions: [PayPal REST onboarding](https://developer.paypal.com/api/get-started/) and [checkout approval/capture](https://developer.paypal.com/api/rest/integration/orders-api).
+1. Open [PayPal Apps & Credentials](https://developer.paypal.com/dashboard/applications/sandbox), sign in and choose **Sandbox**. Create or use a REST app linked to a sandbox Business merchant account. A separate sandbox Personal buyer approves checkouts.
+2. Configure `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `CUSTODY_RAIL=sandbox` as server secrets. Local `.dev.vars` does not configure hosting.
+3. In deployed Custody, open **Connections** and copy the actual authenticated owner ID. Set `CUSTODY_SELLER_ID` to it. Sites supplies the hosted identity; caller-provided identity headers must never be used as authentication on a public Worker.
+4. Configure `EXTRACTOR_URL`, `EXTRACTOR_KEY` and `EXTRACTOR_MODEL` as server secrets. The endpoint is an HTTPS OpenAI-compatible Chat Completions service supporting strict JSON schema, `temperature: 0` and `max_tokens`. The operating app reads `EXTRACTOR_KEY`; `OPENAI_API_KEY` alone is insufficient. There is no parser fallback. If using Codex key provisioning, complete the OpenAI Developers plugin's secure credential flow.
+5. Redeploy the saved source version after changing hosted environment values. Preserve owner-private access. Never include keys in source, browser bundles, chat, URLs, recordings or receipts.
 
-## Verify real operations
+Official provider setup: [PayPal REST onboarding](https://developer.paypal.com/api/get-started/) and [checkout approval/capture](https://developer.paypal.com/api/rest/integration/orders-api).
 
-1. Use **Verify PayPal** to check actual sandbox OAuth without a model. Once model credentials are configured, use **Verify all connections**. A configured value is not a verified service. Resolve authentication, permission, model and database errors before proceeding.
-2. Create a small USD sandbox checkout in Connections. Open its actual PayPal approval URL and approve with a separate sandbox personal buyer account. Return and explicitly capture the approved order. Confirm the provider order and capture IDs in both Custody and PayPal.
-3. Add a genuine sandbox recipient to the vendor book and a sandbox customer to the customer book through explicit owner verification. Enable the relevant playbooks and choose conservative caps.
-4. Submit your actual request text. Inspect the decision receipt, resolved destination, provider reference and current status. Pending or failed responses do not establish settlement.
-5. Verify a refund on the actual captured order. Verify a payout to your sandbox recipient, then reconcile its item status. Verify an invoice reaches the specified sandbox customer. Dispute evidence needs a real eligible sandbox dispute matched to an imported captured order and genuine merchant evidence.
-6. Use authenticated reconciliation to refresh recorded provider references. It never re-submits money operations. Ambiguous operations without a known reference require investigation in PayPal; automatic retries are disabled.
+## Verify the demonstrated refund flow
 
-The Site is owner-private. PayPal cannot deliver anonymous webhooks through that boundary without supported service access or a separately provisioned relay. The app must not claim webhook delivery is connected solely because a webhook ID exists. Manual authenticated reconciliation supplies an explicit alternative for known references.
+1. Select **Verify PayPal** for actual OAuth; select **Verify all connections** for OAuth plus an actual constrained model response. Configured settings are not proof of service access.
+2. Create a small USD checkout, open its real approval page and sign in with the separate sandbox buyer. Return and capture the approved order. Compare its amount, currency, order ID and capture ID with PayPal.
+3. Set a conservative refund cap/window and enable only **Refund original payments**. Policy templates start disabled.
+4. Independently verify the commercial request. In **New message**, select the refund action, trusted order and maximum outside the untrusted message, then confirm that task authority. Submit a matching request you intend to execute. A substituted target/action or excess task amount cannot be authorized by message text.
+5. Inspect the decision, canonical original capture, checks, receipt and provider reference. A completed refund requires the provider's `COMPLETED` status. Animation replays recorded evidence; it does not run another payment.
+6. Reconcile a known reference to read current provider status without resubmitting. Uncertain actions remain reserved. If no reference was returned, investigate with PayPal using the recorded request identity rather than inventing a new request to bypass the reservation.
 
-## Acceptance evidence still required
+Vendor payouts, invoice sending and eligible dispute evidence require separate permissions, genuine records and individual acceptance tests. They are not prerequisites for the demonstrated refund story. The recorded invoice entitlement probe returned `403 NOT_AUTHORIZED`; code presence is not permission or a successful send.
 
-Record actual provider IDs, UTC timestamps, outcome statuses and sanitized API response evidence for OAuth, checkout creation/approval/capture, refund, payout, invoice, dispute evidence, duplicate handling and reconciliation. Also verify real model extraction and that its output cannot override canonical destinations. Tests using fixture inputs remain software tests; they are not provider verification.
+## Evidence already collected
 
-Full original hackathon scope also includes an independently isolated public sandbox arena, provider-state attack scoring, an ungated baseline comparison and a live Agent Toolkit integration. Those must be separately completed and verified; configuring credentials does not complete them. Production payments are outside the current authorized scope.
+The actual evidence covers OAuth, completed checkout captures, hosted constrained extraction, a completed USD 1.00 refund and an owner-authored forged-authority reattempt held by the remaining-balance check. The post-test PayPal read showed the original capture fully refunded and only the original refund ID. The records retain UTC timestamps and clearly identify sandbox and replay scope.
+
+These recorded hosted decisions were collected before explicit per-request task binding was introduced. Current owner-task enforcement has separate software tests and a [real-model/read-only evaluation](../evaluation/README.md). Do not label a kernel fixture, an evaluation plan or an old simulated benchmark as a newly executed PayPal transaction.
+
+## Callback and evidence limitations
+
+The owner-private Site does not establish anonymous webhook delivery. A configured `PAYPAL_WEBHOOK_ID` is not proof that PayPal can reach the callback through private hosting. Authenticated reconciliation is available for recorded references. A separately supported relay/service-access arrangement needs its own delivery verification; broadening owner access is not a callback fix.
+
+An individual decision export includes a creation receipt and the current decision. Its embedded hash does not independently authenticate every later top-level execution field. Use the full authenticated receipt-chain export for complete event continuity checks, and provider reads for actual transaction status. The chain is not externally anchored immutable accounting.
+
+Production payments, multi-tenant operation, the historical public attack arena, baseline comparisons and live Agent Toolkit execution are outside the verified acceptance scope.

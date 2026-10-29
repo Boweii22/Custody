@@ -1,0 +1,19 @@
+An AI can read a refund request. Should that message decide where your money goes?
+
+Custody helps merchants process refunds while keeping payment authority outside the message.
+
+The merchant selects the permitted order and maximum amount. OpenAI extracts claims. Custody resolves the original capture from PayPal and checks the selected task, currency, limits, remaining balance, and duplicate history.
+
+This is a recorded one-dollar PayPal sandbox refund. The provider confirmed it completed. The animation replays saved evidence; it never runs a payment again.
+
+Now a forged message claims system authority. It says to ignore the prior refund, invent a new remaining balance, and send money elsewhere.
+
+Custody holds it. The payment is already fully refunded. The message's address has no authority. A fresh PayPal lookup shows only the original refund.
+
+Inspect the extracted fields, trusted source, failed check, and receipt. The current version also blocks attempts to substitute a different approved target. Its real-model evaluation sends no payments.
+
+These are actual sandbox records. Uncertain responses remain reserved for reconciliation. The merchant, trusted records, and server still need protection.
+
+The repository includes evidence, evaluation instructions, and an own-account judge setup.
+
+Custody. Every dollar knows who asked for it.

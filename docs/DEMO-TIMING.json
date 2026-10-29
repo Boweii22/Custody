@@ -1,0 +1,66 @@
+{
+  "source": "Approved HeyGen narration metadata, original audio at natural speed",
+  "durationSeconds": 93.38775510204081,
+  "beats": [
+    {
+      "text": "An AI can read a refund request. Should that message decide where your money goes?",
+      "start": 0.256,
+      "wordIndex": 0,
+      "end": 6.144
+    },
+    {
+      "text": "Custody helps merchants process refunds while keeping payment authority outside the message.",
+      "start": 6.144,
+      "wordIndex": 15,
+      "end": 12.416
+    },
+    {
+      "text": "The merchant selects the permitted order and maximum amount. OpenAI extracts claims. Custody resolves the original capture from PayPal and checks the selected task, currency, limits, remaining balance, and duplicate history.",
+      "start": 12.416,
+      "wordIndex": 27,
+      "end": 28.488
+    },
+    {
+      "text": "This is a recorded one-dollar PayPal sandbox refund. The provider confirmed it completed. The animation replays saved evidence; it never runs a payment again.",
+      "start": 28.488,
+      "wordIndex": 58,
+      "end": 39.801
+    },
+    {
+      "text": "Now a forged message claims system authority. It says to ignore the prior refund, invent a new remaining balance, and send money elsewhere.",
+      "start": 39.801,
+      "wordIndex": 82,
+      "end": 49.065
+    },
+    {
+      "text": "Custody holds it. The payment is already fully refunded. The message's address has no authority. A fresh PayPal lookup shows only the original refund.",
+      "start": 49.065,
+      "wordIndex": 105,
+      "end": 58.964
+    },
+    {
+      "text": "Inspect the extracted fields, trusted source, failed check, and receipt. The current version also blocks attempts to substitute a different approved target. Its real-model evaluation sends no payments.",
+      "start": 58.964,
+      "wordIndex": 129,
+      "end": 72.886
+    },
+    {
+      "text": "These are actual sandbox records. Uncertain responses remain reserved for reconciliation. The merchant, trusted records, and server still need protection.",
+      "start": 72.886,
+      "wordIndex": 157,
+      "end": 83.781
+    },
+    {
+      "text": "The repository includes evidence, evaluation instructions, and an own-account judge setup.",
+      "start": 83.781,
+      "wordIndex": 177,
+      "end": 90.01
+    },
+    {
+      "text": "Custody. Every dollar knows who asked for it.",
+      "start": 90.01,
+      "wordIndex": 188,
+      "end": 93.38775510204081
+    }
+  ]
+}

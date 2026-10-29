@@ -2,45 +2,61 @@
 
 Every dollar knows who asked for it.
 
-[Source repository](https://github.com/Boweii22/Custody) · [Hosted workspace](https://custody-money-agent-bowei.no1tomcodes.chatgpt.site/) · [MIT license](LICENSE)
+[Source](https://github.com/Boweii22/Custody) · [Owner workspace](https://custody-money-agent-bowei.no1tomcodes.chatgpt.site/) · [Judge instructions](docs/JUDGES.md) · [MIT license](LICENSE)
 
-Custody is an owner-private money-agent application with a deterministic provenance gate before PayPal execution. Untrusted message/model claims can identify a request; canonical seller records supply protected destinations. The UI includes a ledger, owner review, verified counterparty books, playbooks and an animated replay of stored decision evidence.
+Custody is an assisted refund desk for merchants who want AI to read payment requests while keeping payment authority explicit. The merchant selects a trusted target and a maximum amount outside the message. A real model extracts claims. A deterministic gate checks that those claims fit the authorized task, trusted PayPal records and standing policy before a sandbox adapter can execute them.
 
-**Status: real sandbox integration in progress; not fully verified or complete.** Owner-supplied PayPal sandbox credentials successfully authenticated against PayPal on October 26, 2026. No PayPal settlement or model call has yet been verified. OAuth, configuration, software tests and a successful deployment are distinct from completed payment operations.
+The inbox, ledger and animated pipeline explain the same stored decision: what the message claimed, which record supplied authority, which checks passed, and what PayPal actually returned. Animation is labelled replay and cannot execute a payment.
 
-The operating application starts with an empty ledger, no fictional counterparties or orders and disabled policy templates. Missing credentials block processing. Model failures do not fall back to a simulated extractor. Legacy fictional state stays in its old database namespace; the real operating ledger uses a separate namespace. Test fixtures remain only as explicit software-test inputs. The simulated arena is unavailable in the real workspace.
+## What has actually run
 
-## Run locally
+The core uses real external APIs in PayPal's sandbox; it does not move production funds. These are recorded integration checks, not fictional operating data:
 
-Requires Node 22.13+ and npm:
+| Evidence | Observed result |
+| --- | --- |
+| PayPal OAuth and buyer-approved checkout capture | Authenticated provider responses and completed captures, October 26, 2026 |
+| OpenAI constrained extraction | Successful direct and hosted model verification, October 26 |
+| Owner-authored USD 1.00 refund request | 13 kernel checks passed; PayPal refund `0UJ640930F074291C` returned `COMPLETED`; independently read from PayPal |
+| Owner-authored forged-authority reattempt | Held on October 29: 12 checks passed, `refund_remaining` failed, and no execution or rail reference was created |
+| Provider read after that security test | The original capture was `REFUNDED`; the order contained only the original USD 1.00 completed refund |
+| Current task-bound, read-only evaluation | October 29: 16/16 authored-case expectations met; 3 clean controls, 0 false holds, 0 model errors and 0 payment calls; observed capture/refund amounts and refund IDs unchanged |
+
+See the actual records in [`evidence/`](evidence/) and the interactive local viewer at `/judge`. Those two recorded hosted decisions predate explicit per-request task binding; they establish the capture/refund and remaining-balance path, not verification of every later change. The new task gate has separate software tests and a reproducible [real-model, read-only evaluation](evaluation/README.md), with the observed result saved in [`evidence/real-model-report.json`](evidence/real-model-report.json). This is one small authored run with the returned GPT-4.1 Mini snapshot, not a statistical security guarantee; do not substitute the historical simulated benchmark.
+
+Missing credentials fail closed. Model errors never fall back to a rule parser. The operating ledger starts empty, with disabled policy templates and no fictional counterparties. Software fixtures are confined to tests and historical analysis.
+
+## Run and judge
+
+Requires Node 22.13+ and npm. From a fresh checkout:
 
 ```sh
 npm run setup
 npm run dev -- --hostname 127.0.0.1 --port 4381
 ```
 
-Open `http://127.0.0.1:4381`. `setup` installs missing dependencies, generates/builds the Worker and applies local D1 migrations. The local database persists under `.wrangler/state`. Local development identity is for inspecting setup and software verification; it is not a sandbox seller authorization. Use the deployed authenticated Site for seller operations.
+Open `http://127.0.0.1:4381/judge` to inspect the actual recorded evidence and replay its decisions. This viewer contains no payment credentials and performs no payment writes. The private hosted owner workspace is not an anonymous judge login.
 
-## Connect your accounts
+To test real integrations with your own accounts, follow [the complete judge setup](docs/JUDGES.md). An explicit loopback-only opt-in creates an ignored local authentication token; provider keys stay in the ignored server env file. Hosted seller controls still require the authenticated configured owner. Never share the author's keys or expose the local server to the network.
 
-Follow [real sandbox setup](docs/REAL-SANDBOX-SETUP.md). Enter credentials in the ignored local `.dev.vars` file or the Site's server-secret configuration. Local environment files do not configure hosting. Keep keys out of chat, source, client code and exported receipts.
+```sh
+node scripts/setup-judge.mjs --enable-local-sandbox
+# Fill the ignored .dev.vars locally with your own sandbox/model credentials.
+# Restart the server and unlock the local sandbox using its local token.
+```
 
-Required values are `CUSTODY_RAIL=sandbox`, `CUSTODY_SELLER_ID`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `EXTRACTOR_URL`, `EXTRACTOR_KEY` and `EXTRACTOR_MODEL`. `PAYPAL_WEBHOOK_ID` alone does not establish reachable or verified callback delivery. The PayPal origin is fixed to `https://api-m.sandbox.paypal.com`; production money movement is not implemented or authorized.
+The local database persists under `.wrangler/state`. The ordinary local workspace remains unable to execute sandbox actions until this opt-in is configured. See [real sandbox setup](docs/REAL-SANDBOX-SETUP.md) for the hosted owner path and each environment key.
 
-Use the actual signed-in owner ID shown in Connections. Sites dispatch supplies the hosted identity. Keep the Site owner-private; a first-owner database binding protects setup until an explicit seller ID is configured. Do not expose the Worker behind caller-controlled identity headers.
+## The authority boundary
 
-## Execution and evidence
+1. **Authorize a task.** The authenticated merchant chooses an existing trusted target, action and maximum amount outside untrusted text, then confirms that authority. The server records the actor and time.
+2. **Extract claims.** An actual configured model returns strict JSON without tools. Its fields receive `tainted:model` labels from the server.
+3. **Resolve and decide.** The resolver supplies canonical destinations. The task gate rejects a substituted target, action or amount ceiling. The pure policy kernel checks currency, caps, original capture, remaining refundable balance, return window and duplicate execution keys.
+4. **Reserve before executing.** The durable ledger reserves an allowed action before the PayPal call. An allowed plan is not a completed payment.
+5. **Record and reconcile.** PayPal's response determines the recorded state. Pending or uncertain operations remain unconfirmed. Reconciliation reads a known provider reference and does not resubmit money operations.
 
-1. A real configured model extracts constrained JSON without tools. The server validates the response and assigns tainted provenance.
-2. The resolver retrieves canonical vendor, customer, PayPal order/capture and dispute records.
-3. The pure kernel checks value bindings, policy, caps, currency, original destinations, duplicates and refund bounds.
-4. An atomic ledger reservation precedes external execution. An allowed plan is not a completed payment.
-5. The sandbox adapter calls PayPal. Pending and uncertain responses remain explicitly unconfirmed. Reconciliation re-reads provider records and does not re-submit payments.
-6. The receipt chain and animated pipeline show the stored decision and provider status. Playback never executes an action.
+This boundary does not authenticate a customer email or establish that a commercial refund is justified. The merchant must verify that right before authorizing the task. A compromised owner account or trusted store remains powerful. See the [threat model](docs/THREAT-MODEL.md).
 
-The SHA-256 receipt chain detects internal inconsistencies; it is not an independently anchored immutable accounting system. Seller verification of a counterparty is an explicit owner assertion, not automatic proof that an invoice is genuine.
-
-## Verify software
+## Reproduce the evidence
 
 ```sh
 npm test
@@ -48,26 +64,29 @@ npm run typecheck
 node scripts/smoke-api.mjs http://127.0.0.1:4381
 ```
 
-The local smoke test checks empty-state and fail-closed boundaries without inserting fictional business data. Kernel tests include generated cases and mocked adapter contract tests. These tests do not establish working provider credentials, PayPal permissions, settlement, model accuracy or resistance to all prompt injection.
+Software tests include explicit fixtures, generated kernel cases, reconciliation contracts and task-binding cases. They do not claim provider settlement or model accuracy.
 
-The historical `benchmark/report.json` records the previous deterministic-extractor simulation only. It is not a real PayPal or model benchmark and is not accepted as current completion evidence. Its old runtime corpus is retained for historical analysis and is incompatible with the disabled simulated arena.
+The [new evaluation](evaluation/README.md) calls a real model, fetches your actual sandbox orders, and evaluates the production pure resolver/kernel/task gate. It contains no payment writer. It reports clean-control false holds, failed cases, model errors, planned arguments and provider snapshots before/after. It is deliberately distinct from a hosted end-to-end payment test.
 
-## Remaining acceptance work
+Individual decision exports contain a creation receipt and current decision fields. A valid embedded hash does not independently authenticate every later execution field or export the complete ledger chain. The full authenticated receipt-chain export supports a separate continuity check. SHA-256 detects inconsistencies; the chain is not externally anchored immutable accounting.
 
-Real provider verification is required for OAuth and model extraction, checkout creation/buyer approval/capture, refund, payout and item reconciliation, invoice send and eligible dispute evidence. Preserve actual provider IDs, timestamps, expected destinations/amounts and sanitized upstream evidence. An API route or a passing unit test does not complete this work.
+The old [`benchmark/`](benchmark/) targets the former deterministic-extractor simulation. Its report is historical, incompatible with the disabled arena, and is not current real-model or PayPal evidence.
 
-The earlier product plan includes an independently isolated public sandbox arena, provider-state attack scoring and an ungated baseline comparison. These are additional product goals, not mandatory hackathon eligibility requirements. The optional Agent Toolkit bridge in `lib/toolkit.ts` is not wired into the running REST application. Document/page ingestion, plain-English playbook compilation and end-to-end callback infrastructure also remain unfinished. There is no production or multi-tenant deployment.
+## Deliberate scope
 
-The owner-private hosting boundary prevents anonymous PayPal callback delivery without supported service access or a separate relay. Do not broaden the audience to work around it. Authenticated reconciliation handles recorded references; ambiguous operations without a reference need provider investigation.
+The demonstrated hackathon story is owner-authorized refund processing and inspectable payment boundaries. PayPal sandbox plus meaningful AI satisfies the platform scope of the [hackathon rules](https://paypalaihackathon.devpost.com/rules); production money and every PayPal product are not required.
 
-## Limits and source map
+Payout, invoice and dispute adapter code exists but has not been verified end to end in the recorded acceptance run. The optional Agent Toolkit bridge is not the running REST integration. Public attack-money arenas, baseline comparisons, document ingestion and natural-language policy compilation are not presented as completed features. The workspace is single-seller, not multi-tenant.
 
-The single-seller D1 snapshot is bounded to 1.7 MB and needs explicit archiving before reaching capacity. This is not an indefinite-volume accounting service. Processing and model calls have durable rate/budget limits. Request text is stored in D1 and sent to the configured model provider; use only data you are authorized to process.
+Private hosting does not establish anonymous PayPal webhook delivery. Authenticated reconciliation is the supported recorded-reference recovery path; uncertain operations without a reference require provider investigation. The D1 snapshot is bounded to 1.7 MB, so sustained production-scale operation needs archival/storage work. Request text is stored and sent to the configured model; use only data you are authorized to process.
 
-- `lib/kernel.ts`: deterministic authorization gate.
-- `lib/server/`: identity, persistence, real extraction, PayPal REST and reconciliation.
-- `app/`: React UI, connection setup, ledger and provenance animation.
-- `tests/`: explicit software tests, including fixture-based cases.
-- [API contract](docs/api.md), [threat model](docs/THREAT-MODEL.md), [Toolkit status](docs/TOOLKIT.md).
+## Source map
 
-MIT license. No claim of universal payment safety or completed end-to-end operation is made.
+- `lib/kernel.ts`, `lib/task-authority.ts`: pure deterministic gates.
+- `lib/server/`: authentication, persistence, constrained extraction, PayPal and reconciliation.
+- `app/`: operating workspace and actual-record judge viewer.
+- `evaluation/`: real-model/read-only provider evaluation, with explicit scope labels.
+- `evidence/`: sanitized recorded provider and decision evidence.
+- [API contract](docs/api.md), [judge setup](docs/JUDGES.md), [threat model](docs/THREAT-MODEL.md), [submission text](docs/SUBMISSION.md), [video script](docs/DEMO-SCRIPT.md).
+
+MIT license. No universal prompt-injection, fraud-prevention or winning claim is made.

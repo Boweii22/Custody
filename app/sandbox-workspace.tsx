@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import { ArrowRight, ArrowUpRight, Check, Copy, FileCheck2, LockKeyhole, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import type { AppState, CheckoutOperation } from './ui-types';
+import { apiFetch } from './api-client';
 
 const money = (cents = 0, currency = 'USD') => new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100);
 const positiveCents = (value: string) => /^\d+(?:\.\d{1,2})?$/.test(value) ? Math.round(Number(value) * 100) : NaN;
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const response = await apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const result = await response.json() as T & { error?: string };
   if (!response.ok) throw Error(result.error || 'The server could not complete this request.');
   return result;
