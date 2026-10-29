@@ -2,7 +2,7 @@
 
 Every dollar knows who asked for it.
 
-[Open judge portal](https://boweii22.github.io/Custody/) · [Watch the 1:34 demo](https://www.youtube.com/watch?v=FEn-QmiAO3g) · [Public source](https://github.com/Boweii22/Custody) · [Judge instructions](docs/JUDGES.md) · [MIT license](LICENSE)
+[Open judge portal](https://boweii22.github.io/Custody/) · [Watch the 1:37 demo](https://www.youtube.com/watch?v=fBgxPdKP-4o) · [Public source](https://github.com/Boweii22/Custody) · [Judge instructions](docs/JUDGES.md) · [MIT license](LICENSE)
 
 The public judge portal requires no login or API key. It is an interactive viewer of actual recorded evidence and the real-model evaluation; replay and inspection perform no payment writes. The [private owner workspace](https://custody-money-agent-bowei.no1tomcodes.chatgpt.site/) retains separate seller authentication and controls.
 
@@ -27,9 +27,11 @@ See the actual records in [`evidence/`](evidence/), the [public judge portal](ht
 
 Missing credentials fail closed. Model errors never fall back to a rule parser. The operating ledger starts empty, with disabled policy templates and no fictional counterparties. Software fixtures are confined to tests and historical analysis.
 
+On 29 October, the current hosted task-binding build completed a fresh owner-authorized USD 0.01 sandbox refund. All 17 checks passed. Separate PayPal refund and order GETs confirmed completion on the original capture; all 25 event hashes and previous-hash links in the new private export verified. The [sanitized acceptance report](evidence/task-bound-refund-verification.json) records the selected task, one-cent ceiling, provider status and internal chain checks. It keeps actor IDs and raw exports private.
+
 ## Run and judge
 
-Start with the [published judge portal](https://boweii22.github.io/Custody/) and [public demonstration video](https://www.youtube.com/watch?v=FEn-QmiAO3g). To inspect or run the source locally, use Node 22.13+ and npm. From a fresh checkout:
+Start with the [published judge portal](https://boweii22.github.io/Custody/) and [public demonstration video](https://www.youtube.com/watch?v=fBgxPdKP-4o). To inspect or run the source locally, use Node 22.13+ and npm. From a fresh checkout:
 
 ```sh
 npm run setup
@@ -93,6 +95,6 @@ Private hosting does not establish anonymous PayPal webhook delivery. Authentica
 
 ## Submission status
 
-The MIT repository, public judge portal and public 1:34 YouTube demonstration are published and verified. The hardened seller workspace remains owner-private. A Devpost draft or final entry has not been verified as saved or submitted; the entrant still needs to sign in, complete the entrant/team fields, review eligibility and rights, accept the required terms and submit through Devpost. Use the [ready submission text](docs/SUBMISSION.md) and verify Devpost's confirmation afterward.
+The MIT repository, public judge portal and public 1:37 YouTube demonstration are published and verified. The hardened seller workspace remains owner-private. The entrant is preparing the Devpost draft; final submission has not yet been verified. Entrant/team fields, eligibility and rights, required terms and final submission remain the entrant's responsibility. Use the [ready submission text](docs/SUBMISSION.md) and verify Devpost's confirmation afterward.
 
 MIT license. No universal prompt-injection, fraud-prevention or winning claim is made.

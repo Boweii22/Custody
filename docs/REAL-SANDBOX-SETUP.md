@@ -31,6 +31,8 @@ The actual evidence covers OAuth, completed checkout captures, hosted constraine
 
 These recorded hosted decisions were collected before explicit per-request task binding was introduced. Current owner-task enforcement has separate software tests and a [real-model/read-only evaluation](../evaluation/README.md). Do not label a kernel fixture, an evaluation plan or an old simulated benchmark as a newly executed PayPal transaction.
 
+On 29 October, the current hosted task-binding build completed a fresh owner-authorized USD 0.01 sandbox refund. All 17 checks passed. Separate PayPal refund and order GETs confirmed completion on the original capture; all 25 event hashes and previous-hash links in the new private export verified. The [sanitized acceptance report](../evidence/task-bound-refund-verification.json) records the selected task, one-cent ceiling, provider status and internal chain checks. It keeps actor IDs and raw exports private.
+
 ## Callback and evidence limitations
 
 The owner-private Site does not establish anonymous webhook delivery. A configured `PAYPAL_WEBHOOK_ID` is not proof that PayPal can reach the callback through private hosting. Authenticated reconciliation is available for recorded references. A separately supported relay/service-access arrangement needs its own delivery verification; broadening owner access is not a callback fix.

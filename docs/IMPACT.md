@@ -18,6 +18,8 @@ One actual owner-authored USD 1.00 refund completed in PayPal sandbox. A subsequ
 
 A separate current read-only run used actual model responses and fresh PayPal records for 16 authored cases. All observed expectations were met, including three legitimate controls with no false holds. It made no payment calls. That evidence supports the tested task/destination invariants on those snapshots; it does not establish a universal injection-resistance rate or real commercial fraud prevention.
 
+On 29 October, the current hosted task-binding build completed a fresh owner-authorized USD 0.01 sandbox refund. All 17 checks passed. Separate PayPal refund and order GETs confirmed completion on the original capture; all 25 event hashes and previous-hash links in the new private export verified. The [sanitized acceptance report](../evidence/task-bound-refund-verification.json) records the selected task, one-cent ceiling, provider status and internal chain checks. It keeps actor IDs and raw exports private.
+
 ## Contribution and next validation
 
 The demonstrated contribution is an inspectable boundary that binds proposed actions to a merchant-selected task and canonical payment records, with provider-backed receipts. A model's ability to parse text remains separate from its authority to choose a payment target.

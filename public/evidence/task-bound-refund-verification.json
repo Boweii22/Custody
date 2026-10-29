@@ -1,0 +1,97 @@
+{
+  "format": "custody-hosted-bound-refund-verification-v1",
+  "verifiedAt": "2026-10-29T10:16:56.784Z",
+  "scope": "Fresh hosted owner-submitted sandbox refund; offline exported event continuity and independent PayPal GETs. No new payment was submitted by this verifier. Chain is not externally anchored.",
+  "sourceCommit": "63fb88252a05f490d13b52f706cede0ae36ded0b",
+  "decision": {
+    "id": "decision-0a7de685-6497-496f-ace9-a43f36757433",
+    "createdAt": "2026-10-29T10:14:11.084Z",
+    "status": "refunded",
+    "amountCents": 1,
+    "currency": "USD",
+    "orderId": "0GT72472FW972123E",
+    "captureId": "0MP28449MW960614W",
+    "refundId": "67Y98948S5668032A",
+    "ownerTask": {
+      "kind": "refund",
+      "targetId": "0GT72472FW972123E",
+      "maxAmountCents": 1,
+      "confirmed": true,
+      "at": "2026-10-29T10:14:07.113Z",
+      "actorPresent": true,
+      "actorOmitted": true
+    },
+    "passedKernelChecks": 17,
+    "totalKernelChecks": 17
+  },
+  "chain": {
+    "count": 25,
+    "head": "19628c61248a955a2e8f8c95a8a9e2951c3b7a202c3c62309be6d69a53d8d4ab",
+    "validHashes": 25,
+    "validPreviousLinks": 25,
+    "creationIndex": 24,
+    "executionIndex": 25,
+    "rawDecisionSha256": "f8ea81cf6cf302efa2bf48b76cf514d479f96afe8d8b6ccc0fc59bb76a851968",
+    "rawChainSha256": "25e12e0e6fd0c1de9218dfce6c5e45a8a1ea8b648570ff0e0c3ebbfe3cab13cd",
+    "rawExportsKeptPrivate": true
+  },
+  "provider": {
+    "origin": "https://api-m.sandbox.paypal.com",
+    "oauthHttpStatus": 200,
+    "reads": [
+      {
+        "endpoint": "/v2/payments/refunds/67Y98948S5668032A",
+        "httpStatus": 200,
+        "method": "GET",
+        "fetchedAt": "2026-10-29T10:16:56.679Z",
+        "rawResponseSha256": "7c67a2abaa21b778ade6657901809273a97066105812655d7fe7fdd3b290eaad"
+      },
+      {
+        "endpoint": "/v2/checkout/orders/0GT72472FW972123E",
+        "httpStatus": 200,
+        "method": "GET",
+        "fetchedAt": "2026-10-29T10:16:56.780Z",
+        "rawResponseSha256": "397aacee68b30f39a3c0a2115579a57d2fd988ef6bb19c4bcf4daa8c7feca988"
+      }
+    ],
+    "refundCaptureLinks": [
+      {
+        "rel": "up",
+        "href": "https://api.sandbox.paypal.com/v2/payments/captures/0MP28449MW960614W"
+      }
+    ],
+    "captureStatus": "PARTIALLY_REFUNDED",
+    "capturedCents": 100,
+    "completedRefunds": [
+      {
+        "id": "67Y98948S5668032A",
+        "amountCents": 1,
+        "currency": "USD"
+      }
+    ],
+    "refundedCents": 1,
+    "paymentCallsMade": 0
+  },
+  "allChecksPassed": true,
+  "checks": {
+    "decisionIdentity": true,
+    "ownerTaskBound": true,
+    "taskPrecedesDecision": true,
+    "allSeventeenChecksPassed": true,
+    "taskChecksPresent": true,
+    "exactBoundExecution": true,
+    "recordedCompletion": true,
+    "chainFormat": true,
+    "chainIndices": true,
+    "everyHashValid": true,
+    "everyPreviousLinkValid": true,
+    "chainSummaryMatches": true,
+    "embeddedReceiptMatches": true,
+    "creationBindsOwnerTaskAndExecution": true,
+    "singleLinkedExecution": true,
+    "providerRefundCompleted": true,
+    "providerOrderCaptureMatches": true,
+    "providerOrderIncludesExactRefund": true,
+    "providerOriginalCaptureRelation": true
+  }
+}

@@ -1,16 +1,16 @@
-# Custody — submission copy
+# Custody â€” submission copy
 
-[Public judge portal](https://boweii22.github.io/Custody/) · [Public 1:34 video](https://www.youtube.com/watch?v=FEn-QmiAO3g) · [Public MIT repository](https://github.com/Boweii22/Custody)
+[Public judge portal](https://boweii22.github.io/Custody/) Â· [Public 1:37 video](https://www.youtube.com/watch?v=fBgxPdKP-4o) Â· [Public MIT repository](https://github.com/Boweii22/Custody)
 
 These three publication paths are live and verified. This file is ready-to-paste submission content; it does not establish that a Devpost draft has been saved or an entry submitted. The entrant's sign-in, team fields, eligibility/rights review, required terms and final Devpost submission remain human steps.
 
 ## Project name
 
-Custody
+Custody â€” Every dollar knows who asked for it
 
 ## Tagline
 
-An AI refund desk where merchant tasks and PayPal records bound every executable action.
+A message can request a refund but never authorize one. Custody lets AI read refund requests while merchant-approved tasks and trusted PayPal records decide where every dollar goes.
 
 ## Inspiration
 
@@ -18,7 +18,7 @@ Payment agents read text that may contain both a legitimate request and instruct
 
 The first audience is independent online merchants who review refund requests. They need a clear way to approve the intended task, apply consistent payment limits and understand why an action ran or stopped.
 
-The [one-page impact case](IMPACT.md) separates this target-user hypothesis from measured evidence. We claim no merchant adoption, interviews, time savings or loss-prevention statistic. The demonstrated value is the working path from a specific merchant-approved task to bounded payment arguments and an inspectable outcome.
+The [one-page impact case](https://github.com/Boweii22/Custody/blob/main/docs/IMPACT.md) separates this target-user hypothesis from measured evidence. We claim no merchant adoption, interviews, time savings or loss-prevention statistic. The demonstrated value is the working path from a specific merchant-approved task to bounded payment arguments and an inspectable outcome.
 
 ## What it does
 
@@ -29,6 +29,8 @@ A deterministic task gate rejects a different action, different target or excess
 The inbox, ledger and animated provenance pipeline expose the same record. Violet fields show message claims; trusted records supply protected values. Each decision can be inspected and exported. Replay never submits another payment.
 
 The recorded core includes a completed USD 1.00 PayPal sandbox refund and an owner-authored forged-authority reattempt that was held against the exhausted balance. An independent provider read confirmed that only the original completed refund existed. These are actual sandbox records, not simulated transactions.
+
+On 29 October, the current hosted task-binding version also completed a fresh owner-submitted USD 0.01 refund. The owner selected the original order and a one-cent ceiling before extraction; all 17 checks passed. Independent PayPal refund and order reads confirmed the completed refund on the original capture. This validates that specific bounded sandbox flow, not every supported adapter or production use.
 
 ## How we built it
 
@@ -55,6 +57,8 @@ The actual model-to-kernel-to-PayPal refund flow has run. The held reattempt has
 
 The visual pipeline makes a security decision understandable without relying on a model-written explanation. An offline verification also checked all 22 event hashes and continuity links in the private exported receipt chain and matched both public receipts to it. A sanitized summary is public; the raw chain remains private. This is internal continuity evidence, not externally anchored proof or a new provider-status query.
 
+After the fresh task-bound refund, the new private export contained 25 events. All 25 hashes and previous-hash links verified, including the owner-bound creation at index 24 and its completed execution at index 25. The [newer acceptance report](../evidence/task-bound-refund-verification.json) is published separately from the labelled historical records.
+
 ## What we learned
 
 Structured JSON is a useful parser boundary, but it does not make the fields true or authorize a payment. Explicit merchant authority, canonical values and independently verified provider outcomes answer different questions. Making those distinctions visible helps a reviewer understand both successful and withheld actions.
@@ -66,17 +70,17 @@ The commercial request still needs merchant verification. Future work includes a
 ## How to test
 
 1. Open the [public judge portal](https://boweii22.github.io/Custody/) with no login or API key. Inspect the actual recorded refund, held attack, pipeline replay and 16-case evaluation.
-2. Watch the [1:34 public demonstration](https://www.youtube.com/watch?v=FEn-QmiAO3g). To reproduce locally, clone the public source and follow [JUDGES.md](JUDGES.md).
+2. Watch the [1:37 public demonstration](https://www.youtube.com/watch?v=fBgxPdKP-4o). To reproduce locally, clone the public source and follow [JUDGES.md](https://github.com/Boweii22/Custody/blob/main/docs/JUDGES.md).
 3. For a fresh integration run, explicitly enable the loopback sandbox, provide your own sandbox/model credentials, approve a checkout using a separate sandbox buyer, and authorize a bounded refund task.
 4. Run the documented real-model/read-only evaluation against your own actual captures. Its scope is distinct from the recorded hosted money operation.
 
 Judge portal: https://boweii22.github.io/Custody/
 
-Video: https://www.youtube.com/watch?v=FEn-QmiAO3g
+Video: https://www.youtube.com/watch?v=fBgxPdKP-4o
 
 Public MIT source: https://github.com/Boweii22/Custody
 
-Full-chain verification summary: [evidence/full-chain-verification.json](../evidence/full-chain-verification.json)
+Historical full-chain verification summary: [evidence/full-chain-verification.json](https://github.com/Boweii22/Custody/blob/main/evidence/full-chain-verification.json)
 
 The owner merchant workspace remains private. Judges do not need that account or its keys; the public portal and complete own-account local path are separate.
 
